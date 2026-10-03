@@ -1,0 +1,5 @@
+build*/
+dist/
+llama.cpp/
+*.gguf
+__pycache__/

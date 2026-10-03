@@ -65,13 +65,14 @@ standard, es. `-c 8192`, `--temp 0.6`, `--top-p 0.95`, `-np 8`, `--threads 8`
 | `--no-moe-expansion` / `AGRILLA_NO_MOE_EXPANSION=1` | routing nativo top-8 |
 | `AGRILLA_MODELS_DIR` | lista di cartelle (`:` su Linux, `;` su Windows) |
 | `AGRILLA_REASONING_BUDGET` | inietta `--reasoning-budget N` (es. `8192`; `-1` illimitato, `0` chiude subito il pensiero) |
+| `AGRILLA_REASONING` | inietta `--reasoning on\|off\|auto` (es. `off` disabilita del tutto il pensiero) |
 
 ### Parametri di generazione (flag nativi di llama-server, tutti passano)
 
 - **Contesto/concorrenza**: `-c 142768` (default), `-np 4` (default), es. `-c 65536 -np 2`
-- **Reasoning budget**: `--reasoning-budget N` — `-1` illimitato (default), `0` chiude subito il pensiero, `N>0` limite in token di thinking; `--reasoning-budget-message "..."` messaggio iniettato a fine pensiero; `--reasoning on|off|auto`
+- **Reasoning**: `--reasoning on|off|auto` — `off` **disabilita il pensiero**; `--reasoning-budget N` — `-1` illimitato (default), `0` chiude subito il pensiero, `N>0` limite in token di thinking; `--reasoning-budget-message "..."` messaggio iniettato a fine pensiero
 - **Temperatura/sampling**: `--temp 0.6`, `--top-p 0.95`, `--top-k`, `--min-p`, `--repeat-penalty`...
-- Il riepilogo `[AgrillaMoE] avvio llama-server con:` mostra i valori effettivi di contesto, slot e reasoning budget.
+- Il riepilogo `[AgrillaMoE] avvio llama-server con:` mostra i valori effettivi di contesto, slot, stato e budget del reasoning.
 
 ### Suggerimento VRAM (catalogo unsloth/Qwen3.6-35B-A3B-GGUF)
 
@@ -126,6 +127,8 @@ installato o driver recente).
 ./agrillamoe -m ~/models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
 ./agrillamoe --host 0.0.0.0 --port 9000 --no-browser
 ./agrillamoe -c 65536 -np 2        # contesto/concorrenza custom
+./agrillamoe --reasoning off       # disabilita il pensiero
+./agrillamoe --reasoning-budget 8192   # limita il thinking a 8192 token
 ./agrillamoe --temp 0.6 --top-p 0.95
 ./agrillamoe --moe-experts 12 --moe-expert-threshold 0.7   # profilo custom
 ```

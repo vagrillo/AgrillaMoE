@@ -404,7 +404,7 @@ static void print_header(const gpu_info & gi) {
     else
         printf("GPU non rilevata (nvidia-smi assente): proposta di default UD-Q3_K_XL\n");
     printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n");
-    printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning budget e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --top-p, ...)\n\n");
+    printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --reasoning off, --top-p, ...)\n\n");
     fflush(stdout);
 }
 
@@ -671,6 +671,17 @@ int main(int argc, char ** argv) {
         }
     }
 
+    // ---- stato reasoning (--reasoning on|off|auto del fork; 'off' disabilita
+    //      del tutto il pensiero). Iniettabile anche con AGRILLA_REASONING.
+    if (!have_flag(argc, argv, {"--reasoning", "-rea"})) {
+        const char * rs = std::getenv("AGRILLA_REASONING");
+        if (rs && *rs) {
+            std::string v = to_lower(trim(rs));
+            if (v == "on" || v == "off" || v == "auto") { clean.push_back("--reasoning"); clean.push_back(v); }
+            else printf("[AgrillaMoE] AGRILLA_REASONING ignorata (valori validi: on|off|auto)\n");
+        }
+    }
+
     // ---- template chat Qwen (usato in tutti i benchmark) ----
     if (!have_flag(argc, argv, {"--jinja", "--no-jinja"})) clean.push_back("--jinja");
 
@@ -699,7 +710,8 @@ int main(int argc, char ** argv) {
     std::string bport = AGRILLA_DEFAULT_PORT;
     std::string bctx  = "142768";
     std::string bnp   = "4";
-    std::string bbudget = "-1";
+    std::string bbudget  = "-1";
+    std::string breason  = "auto";
     for (size_t i = 1; i < storage.size(); ++i) {
         std::string t = storage[i];
         auto eat = [&](const char * name, std::string & out) {
@@ -715,6 +727,7 @@ int main(int argc, char ** argv) {
         if (eat("-np", bnp)) continue;
         if (eat("--parallel", bnp)) continue;
         if (eat("--reasoning-budget", bbudget)) continue;
+        if (eat("--reasoning", breason) || eat("-rea", breason)) { breason = to_lower(breason); continue; }
     }
 
     printf("[AgrillaMoE] avvio llama-server con:\n");
@@ -729,10 +742,16 @@ int main(int argc, char ** argv) {
     }
     {
         long long rb = atoll(bbudget.c_str());
-        printf("[AgrillaMoE]   reasoning     : %s\n",
-               rb < 0  ? "budget illimitato (--reasoning-budget N per limitare i token di pensiero)" :
-               rb == 0 ? "budget 0 (pensiero chiuso subito)" :
-                         (std::string("budget ") + bbudget + " token di pensiero").c_str());
+        if (breason == "off") {
+            printf("[AgrillaMoE]   reasoning     : disattivato (--reasoning off)\n");
+        } else {
+            std::string stato = (breason == "on") ? "attivo (on)" : "attivo (auto: da template)";
+            std::string bud   = (rb < 0)  ? "budget illimitato" :
+                                (rb == 0) ? "budget 0 (pensiero chiuso subito)" :
+                                            "budget " + bbudget + " token";
+            printf("[AgrillaMoE]   reasoning     : %s, %s (--reasoning off per disabilitare il pensiero)\n",
+                   stato.c_str(), bud.c_str());
+        }
     }
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
     printf("[AgrillaMoE]   browser       : %s\n", opt_browser_on ? "apertura automatica al ready" : "disattivato");

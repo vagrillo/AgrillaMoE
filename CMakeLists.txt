@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14...3.28)
-project(AgrillaMoE VERSION 1.0.0 LANGUAGES C CXX)
+project(AgrillaMoE VERSION 1.0.1 LANGUAGES C CXX)
 
 # AgrillaMoE — server di inferenza dedicato a Qwen3.6-35B-A3B (GGUF Unsloth)
 # basato sul fork llama.cpp "moe-expansion" (github.com/vagrillo/llama.cpp).

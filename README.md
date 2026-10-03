@@ -43,12 +43,16 @@ nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da
    browser** (su Windows via `ShellExecute`, su Linux/WSL via `wslview`) appena
    il server è in ascolto. `--no-browser` o `AGRILLA_NO_BROWSER=1` disattivano
    l'apertura.
-4. Altri default iniettati solo se assenti: `--jinja` (template chat Qwen) e
-   `-c 32768` (contesto; ridotto automaticamente se la VRAM non basta grazie a
-   `fit_params` del fork).
+4. Altri default iniettati solo se assenti: `--jinja` (template chat Qwen),
+   `-c 142768` (~140k di contesto) e `--parallel 4` (4 slot da 35840 token,
+   la stessa configurazione dei benchmark RUN1209/Q2). Su GPU con poca VRAM
+   `fit_params` del fork riduce automaticamente il contesto per farci stare
+   modello + KV cache.
 
-Ogni altro flag di `llama-server` (`--help` per l'elenco completo) passa
-direttamente al server sottostante.
+Ogni altro flag di `llama-server` passa direttamente al server sottostante:
+contesto, temperatura, concorrenza e sampling si impostano con i flag
+standard, es. `-c 8192`, `--temp 0.6`, `--top-p 0.95`, `-np 8`, `--threads 8`
+(`--help` per l'elenco completo).
 
 ### Flag dedicati AgrillaMoE
 
@@ -60,6 +64,14 @@ direttamente al server sottostante.
 | `--no-browser` / `AGRILLA_NO_BROWSER=1` | non aprire il browser |
 | `--no-moe-expansion` / `AGRILLA_NO_MOE_EXPANSION=1` | routing nativo top-8 |
 | `AGRILLA_MODELS_DIR` | lista di cartelle (`:` su Linux, `;` su Windows) |
+| `AGRILLA_REASONING_BUDGET` | inietta `--reasoning-budget N` (es. `8192`; `-1` illimitato, `0` chiude subito il pensiero) |
+
+### Parametri di generazione (flag nativi di llama-server, tutti passano)
+
+- **Contesto/concorrenza**: `-c 142768` (default), `-np 4` (default), es. `-c 65536 -np 2`
+- **Reasoning budget**: `--reasoning-budget N` — `-1` illimitato (default), `0` chiude subito il pensiero, `N>0` limite in token di thinking; `--reasoning-budget-message "..."` messaggio iniettato a fine pensiero; `--reasoning on|off|auto`
+- **Temperatura/sampling**: `--temp 0.6`, `--top-p 0.95`, `--top-k`, `--min-p`, `--repeat-penalty`...
+- Il riepilogo `[AgrillaMoE] avvio llama-server con:` mostra i valori effettivi di contesto, slot e reasoning budget.
 
 ### Suggerimento VRAM (catalogo unsloth/Qwen3.6-35B-A3B-GGUF)
 
@@ -113,6 +125,8 @@ installato o driver recente).
 ./agrillamoe                       # menu interattivo, defaults AgrillaMoE
 ./agrillamoe -m ~/models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
 ./agrillamoe --host 0.0.0.0 --port 9000 --no-browser
+./agrillamoe -c 65536 -np 2        # contesto/concorrenza custom
+./agrillamoe --temp 0.6 --top-p 0.95
 ./agrillamoe --moe-experts 12 --moe-expert-threshold 0.7   # profilo custom
 ```
 

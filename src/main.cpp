@@ -58,7 +58,7 @@ namespace fs = std::filesystem;
 // entry point del server, fornito da llama-server-impl (tools/server/server.cpp)
 int llama_server(int argc, char ** argv);
 
-#define AGRILLA_VERSION      "1.0.0"
+#define AGRILLA_VERSION      "1.0.1"
 #define AGRILLA_DEFAULT_HOST "127.0.0.1"
 #define AGRILLA_DEFAULT_PORT "8071"
 #define AGRILLA_HF_REPO      "unsloth/Qwen3.6-35B-A3B-GGUF"
@@ -403,7 +403,8 @@ static void print_header(const gpu_info & gi) {
                gi.name.c_str(), gi.vram_mib, human_gb(vram_budget(gi)).c_str());
     else
         printf("GPU non rilevata (nvidia-smi assente): proposta di default UD-Q3_K_XL\n");
-    printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n\n");
+    printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n");
+    printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning budget e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --top-p, ...)\n\n");
     fflush(stdout);
 }
 
@@ -656,11 +657,29 @@ int main(int argc, char ** argv) {
         }
     }
 
+    // ---- reasoning budget (flag nativo --reasoning-budget N del fork):
+    //      -1 illimitato (default), 0 chiude subito il pensiero, N>0 budget in token.
+    //      Iniettabile anche con AGRILLA_REASONING_BUDGET se l'utente non lo passa.
+    if (!have_flag(argc, argv, {"--reasoning-budget"})) {
+        const char * rb = std::getenv("AGRILLA_REASONING_BUDGET");
+        if (rb && *rb) {
+            std::string v = trim(rb);
+            bool valid = !v.empty() && (v == "-1" || v == "0" ||
+                         (v[0] != '-' && v.find_first_not_of("0123456789") == std::string::npos));
+            if (valid) { clean.push_back("--reasoning-budget"); clean.push_back(v); }
+            else printf("[AgrillaMoE] AGRILLA_REASONING_BUDGET ignorata (valore non valido: '%s')\n", v.c_str());
+        }
+    }
+
     // ---- template chat Qwen (usato in tutti i benchmark) ----
     if (!have_flag(argc, argv, {"--jinja", "--no-jinja"})) clean.push_back("--jinja");
 
-    // ---- contesto di default: 32k (ridotto automaticamente se la VRAM non basta) ----
-    if (!have_flag(argc, argv, {"-c", "--ctx-size"})) { clean.push_back("-c"); clean.push_back("32768"); }
+    // ---- contesto e concorrenza di default come nei benchmark RUN1209/Q2:
+    //      -c 142768 (~140k) con --parallel 4 -> 35840 token per slot.
+    //      fit_params del fork riduce automaticamente il contesto se la VRAM
+    //      non basta, quindi e' sicuro anche su GPU piccole.
+    if (!have_flag(argc, argv, {"-c", "--ctx-size"})) { clean.push_back("-c"); clean.push_back("142768"); }
+    if (!have_flag(argc, argv, {"-np", "--parallel"})) { clean.push_back("--parallel"); clean.push_back("4"); }
 
     // ---- bind di default 127.0.0.1:8071 ----
     if (!have_flag(argc, argv, {"--host"})) { clean.push_back("--host"); clean.push_back(AGRILLA_DEFAULT_HOST); }
@@ -675,9 +694,12 @@ int main(int argc, char ** argv) {
     fargv.reserve(storage.size());
     for (auto & s : storage) fargv.push_back(const_cast<char *>(s.c_str()));
 
-    // host/port effettivi (dell'utente o i nostri) per il browser
+    // host/port/contesto/concorrenza effettivi (dell'utente o i nostri) per il riepilogo
     std::string bhost = AGRILLA_DEFAULT_HOST;
     std::string bport = AGRILLA_DEFAULT_PORT;
+    std::string bctx  = "142768";
+    std::string bnp   = "4";
+    std::string bbudget = "-1";
     for (size_t i = 1; i < storage.size(); ++i) {
         std::string t = storage[i];
         auto eat = [&](const char * name, std::string & out) {
@@ -688,12 +710,30 @@ int main(int argc, char ** argv) {
         };
         if (eat("--host", bhost)) continue;
         if (eat("--port", bport)) continue;
+        if (eat("-c", bctx)) continue;
+        if (eat("--ctx-size", bctx)) continue;
+        if (eat("-np", bnp)) continue;
+        if (eat("--parallel", bnp)) continue;
+        if (eat("--reasoning-budget", bbudget)) continue;
     }
 
     printf("[AgrillaMoE] avvio llama-server con:\n");
     printf("[AgrillaMoE]   MoE expansion : %s\n",
            (opt_moe_on && !have_flag(argc, argv, {"--moe-experts", "--q35-experts", "--moe-experts-add"}))
                ? "esperti 16, soglia 0.80, livelli 25-39 (RUN1209)" : "configurazione utente");
+    {
+        long long ctx_ll = atoll(bctx.c_str());
+        long long np_ll  = atoll(bnp.c_str());
+        printf("[AgrillaMoE]   contesto      : %s token, %s slot da ~%lld (ridotto in automatico se la VRAM non basta)\n",
+               bctx.c_str(), bnp.c_str(), np_ll > 0 ? ctx_ll / np_ll : ctx_ll);
+    }
+    {
+        long long rb = atoll(bbudget.c_str());
+        printf("[AgrillaMoE]   reasoning     : %s\n",
+               rb < 0  ? "budget illimitato (--reasoning-budget N per limitare i token di pensiero)" :
+               rb == 0 ? "budget 0 (pensiero chiuso subito)" :
+                         (std::string("budget ") + bbudget + " token di pensiero").c_str());
+    }
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
     printf("[AgrillaMoE]   browser       : %s\n", opt_browser_on ? "apertura automatica al ready" : "disattivato");
     printf("\n");

@@ -36,14 +36,23 @@ Write-Host "uso cmake:   $CMakeExe ($(& $CMakeExe --version | Select-Object -Fir
 $NinjaDir = "$VS\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
 if (Test-Path "$NinjaDir\ninja.exe") { $env:PATH = "$NinjaDir;$env:PATH" }
 
-# CUDA toolkit 12.x piu' recente disponibile
-$CudaRoot = Get-ChildItem "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA" -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^v12' } | Sort-Object Name -Descending | Select-Object -First 1
-if (-not $CudaRoot) { throw "CUDA toolkit 12.x non trovato in ${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA" }
-$env:PATH = "$($CudaRoot.FullName)\bin;$env:PATH"
+# CUDA toolkit 12.x: rilevato dal nvcc presente su PATH, oppure cartelle note
+# (installazioni non standard tipo D:\cudatooliki12.6 funzionano automaticamente)
+$NvccPath = (Get-Command nvcc.exe -ErrorAction SilentlyContinue).Source
+if (-not $NvccPath) {
+    $cand = @(
+        "D:\cudatooliki12.6",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.6",
+        "D:\CUDA", "C:\CUDA"
+    ) | Where-Object { Test-Path "$_\bin\nvcc.exe" } | Select-Object -First 1
+    if ($cand) { $NvccPath = "$cand\bin\nvcc.exe" }
+}
+if (-not $NvccPath) { throw "nvcc.exe non trovato (PATH o cartelle note)" }
+$CudaRoot = Split-Path (Split-Path $NvccPath)
+$env:PATH = "$CudaRoot\bin;$env:PATH"
 Write-Host "uso VS:      $VS"
-Write-Host "uso cmake:   $CMakeExe"
-Write-Host "uso CUDA:    $($CudaRoot.FullName) (nvcc $($CudaRoot.Name))"
+Write-Host "uso cmake:   $CMakeExe ($(& $CMakeExe --version | Select-Object -First 1))"
+Write-Host "uso CUDA:    $CudaRoot ($(& "$CudaRoot\bin\nvcc.exe" --version | Select-Object -Last 1))"
 
 if (-not $BuildDir) {
     if (Test-Path "D:\") { $BuildDir = "D:\agrilla-build" } else { $BuildDir = "C:\agrilla-build" }
@@ -51,7 +60,7 @@ if (-not $BuildDir) {
 
 $Src = $PSScriptRoot
 
-cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=`"$($CudaRoot.FullName)\bin\nvcc.exe`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe"
+cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=`"$NvccPath`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe"
 if ($LASTEXITCODE -ne 0) { throw "build fallita (codice $LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force -Path "$Src\dist\windows" | Out-Null

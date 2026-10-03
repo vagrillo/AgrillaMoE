@@ -617,6 +617,14 @@ int main(int argc, char ** argv) {
         return 0;
     }
 
+    // fast path: --help/--version passano dritti al server, senza menu ne' default
+    if (have_flag(argc, argv, {"-h", "--help", "--version"})) {
+        std::vector<char *> hargv;
+        hargv.push_back(argv[0]);
+        for (auto & s : clean) hargv.push_back(const_cast<char *>(s.c_str()));
+        return llama_server((int) hargv.size(), hargv.data());
+    }
+
     // ---- modello: -m vince; altrimenti selezione interattiva ----
     if (!have_flag(argc, argv, {"-m", "--model"})) {
         selection_result sel = select_model(extra_dir, opt_assume_yes);

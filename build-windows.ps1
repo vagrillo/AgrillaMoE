@@ -64,6 +64,8 @@ cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B 
 if ($LASTEXITCODE -ne 0) { throw "build fallita (codice $LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force -Path "$Src\dist\windows" | Out-Null
-Copy-Item -Force "$BuildDir\bin\agrillamoe.exe" "$Src\dist\windows\agrillamoe.exe"
+$Exe = "$BuildDir\agrillamoe.exe"
+if (-not (Test-Path $Exe)) { $Exe = "$BuildDir\bin\agrillamoe.exe" }
+Copy-Item -Force $Exe "$Src\dist\windows\agrillamoe.exe"
 Write-Host ""
 Write-Host "OK: $Src\dist\windows\agrillamoe.exe"

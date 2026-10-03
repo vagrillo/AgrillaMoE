@@ -34,6 +34,8 @@ cmake -S "$HERE" -B "$BUILD_DIR" \
 cmake --build "$BUILD_DIR" --target agrillamoe -j"$JOBS"
 
 mkdir -p "$HERE/dist/linux"
-cp -f "$BUILD_DIR/bin/agrillamoe" "$HERE/dist/linux/agrillamoe"
+BIN="$BUILD_DIR/agrillamoe"
+[ -f "$BIN" ] || BIN="$BUILD_DIR/bin/agrillamoe"
+cp -f "$BIN" "$HERE/dist/linux/agrillamoe"
 echo
-echo "OK: $HERE/dist/linux/agrillamoe"
+echo "OK: $HERE/dist/linux/agrillamoe ($(du -h "$HERE/dist/linux/agrillamoe" | cut -f1))"

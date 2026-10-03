@@ -39,6 +39,7 @@ namespace fs = std::filesystem;
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <shellapi.h>
+    #include <io.h>
     #define agrilla_popen  _popen
     #define agrilla_pclose _pclose
     #define agrilla_isatty _isatty
@@ -403,6 +404,7 @@ static void print_header(const gpu_info & gi) {
     else
         printf("GPU non rilevata (nvidia-smi assente): proposta di default UD-Q3_K_XL\n");
     printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n\n");
+    fflush(stdout);
 }
 
 static selection_result select_model(const std::string & extra_dir, bool assume_yes) {
@@ -441,7 +443,7 @@ static selection_result select_model(const std::string & extra_dir, bool assume_
                    "  hf download %s \"%s\" --local-dir <dir>\n"
                    "e riavvia, oppure passa -m <percorso/*.gguf>.\n",
                    q.label, q.file, q.gb, AGRILLA_HF_REPO, q.file);
-            res.cancelled = true;
+            res.cancelled = false;   // errore, non annullamento utente: exit code 1
             return res;
         }
         while (true) {
@@ -530,14 +532,14 @@ static bool tcp_probe(const std::string & host, int port) {
     addr.sin_family = AF_INET;
     addr.sin_port   = htons((uint16_t) port);
     if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) == 1) {
-        ok = connect(s, (sockaddr *) &addr, sizeof addr) == 0;
+        ok = (connect(s, (sockaddr *) &addr, sizeof addr) == 0);
     }
 #ifdef _WIN32
     closesocket(s);
 #else
     close(s);
 #endif
-    return ok == true;
+    return ok;
 }
 
 static void open_browser(const std::string & url) {
@@ -583,9 +585,12 @@ int main(int argc, char ** argv) {
 #endif
     using namespace agrilla;
 
-    const bool opt_browser_on = !env_flag_on("AGRILLA_NO_BROWSER");
-    const bool opt_moe_on     = !env_flag_on("AGRILLA_NO_MOE_EXPANSION");
-    const bool opt_assume_yes = env_flag_on("AGRILLA_YES");
+    const bool opt_browser_on = !env_flag_on("AGRILLA_NO_BROWSER") &&
+                                !have_flag(argc, argv, {"--no-browser", "--agrilla-no-browser"});
+    const bool opt_moe_on     = !env_flag_on("AGRILLA_NO_MOE_EXPANSION") &&
+                                !have_flag(argc, argv, {"--no-moe-expansion", "--agrilla-no-moe-expansion"});
+    const bool opt_assume_yes = env_flag_on("AGRILLA_YES") ||
+                                have_flag(argc, argv, {"--agrilla-yes"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir"}, "");
@@ -692,6 +697,7 @@ int main(int argc, char ** argv) {
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
     printf("[AgrillaMoE]   browser       : %s\n", opt_browser_on ? "apertura automatica al ready" : "disattivato");
     printf("\n");
+    fflush(stdout);
 
     if (opt_browser_on) {
         std::thread(wait_server_and_open, bhost, atoi(bport.c_str())).detach();

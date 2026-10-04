@@ -1,4 +1,4 @@
-# AgrillaMoE — Guida GPU 16 GB / 16 GB GPU Guide
+# AgrillaMoE — Guida GPU 16 GB / 16 GB GPU Guide..12GB? maybe!
 
 > **Qwen3.6-35B-A3B quantizzato 2-bit con MoE-expansion, passo passo per chi non è esperto.**
 > In questo documento: [versione italiana](#italiano) · [English version](#english)

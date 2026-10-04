@@ -157,7 +157,10 @@ con CUDA ≥ 12.8).
 ```
 
 API: OpenAI-compatibili su `http://127.0.0.1:8071/v1` (+ web UI sulla radice),
-identiche a `llama-server`.
+identiche a `llama-server`; include anche l'endpoint **Anthropic
+`/v1/messages`**, quindi si possono collegare direttamente **Claude Code** e
+gli agent OpenAI-compatibili (Aider, Cline, OpenCode, Continue, Zed, Goose) —
+istruzioni passo passo in [gpu16gbguide.md](gpu16gbguide.md), sezione 8.
 
 ## Struttura
 

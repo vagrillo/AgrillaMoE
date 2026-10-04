@@ -142,6 +142,57 @@ Per fermare il server: premi `Ctrl+C` nella finestra del terminale.
 | "nessuna GPU / CUDA error" | aggiorna il driver NVIDIA (deve supportare CUDA 12+) |
 | Scaricamento interrotto | rilancia AgrillaMoE e ridai `s`: il download riprende da dove era arrivato |
 
+## 8. Usare coding agent con AgrillaMoE (Claude Code e altri)
+
+AgrillaMoE espone sia le API **OpenAI-compatibili** (`/v1/chat/completions`)
+sia l'**API Anthropic** (`/v1/messages`, usata da Claude Code). Il server resta
+in esecuzione mentre usi l'agent in un'altra finestra del terminale.
+
+### Claude Code
+
+1. Installa Claude Code (serve Node.js 18+): `npm install -g @anthropic-ai/claude-code`
+2. Apri un **secondo** terminale (AgrillaMoE deve restare acceso) e digita:
+
+   **Linux / macOS:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:8071
+   export ANTHROPIC_AUTH_TOKEN=agrilla
+   unset ANTHROPIC_API_KEY
+   claude
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8071"
+   $env:ANTHROPIC_AUTH_TOKEN = "agrilla"
+   Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+   claude
+   ```
+
+3. Alla prima esecuzione rispondi alle domande di Claude Code, poi scrivi il
+   tuo task (`claude "spiega questo progetto"` oppure dentro la chat).
+   Il token è un valore qualsiasi (il server non richiede chiavi).
+
+Consiglio: se le risposte sono lente per il lungo ragionamento del modello,
+riavvia AgrillaMoE con `--reasoning-budget 4096` (limita il pensiero) oppure
+`--reasoning off` (risposte dirette).
+
+### Altri coding agent open source (endpoint OpenAI-compatibile)
+
+Base URL da usare: `http://127.0.0.1:8071/v1` — API key: qualsiasi valore.
+
+| Agent | Come si collega |
+|---|---|
+| **Aider** | `export OPENAI_API_KEY=x` poi `aider --model openai/qwen3.6-35b --openai-api-base http://127.0.0.1:8071/v1` |
+| **OpenCode** | `opencode` → provider "OpenAI compatible" → Base URL `http://127.0.0.1:8071/v1`, model `qwen3.6-35b` |
+| **Cline / Roo Code** (VS Code) | Impostazioni → API Provider: **OpenAI Compatible** → Base URL `http://127.0.0.1:8071/v1` → model `qwen3.6-35b` |
+| **Continue** (VS Code/JetBrains) | config: provider `openai`, `apiBase: http://127.0.0.1:8071/v1`, model `qwen3.6-35b` |
+| **Zed** | settings.json → provider OpenAI-compatible con `api_url: http://127.0.0.1:8071/v1` |
+| **Goose** | `GOOSE_PROVIDER=openai`, `OPENAI_HOST=http://127.0.0.1:8071/v1/`, `GOOSE_MODEL=qwen3.6-35b` |
+
+Il nome esatto del modello caricato lo vedi con:
+`curl http://127.0.0.1:8071/v1/models` (qualsiasi nome funziona comunque).
+
 ---
 
 <a name="english"></a>
@@ -272,6 +323,57 @@ Stop the server with `Ctrl+C` in the terminal.
 | Very slow | GPU below 16 GB: expected — part of the model lives in RAM; try `--reasoning off` and `-c 8192` |
 | "no GPU / CUDA error" | update the NVIDIA driver (must support CUDA 12+) |
 | Interrupted download | start AgrillaMoE again and answer `s`: the download resumes |
+
+## 8. Using coding agents with AgrillaMoE (Claude Code and more)
+
+AgrillaMoE exposes both **OpenAI-compatible** APIs (`/v1/chat/completions`)
+and the **Anthropic API** (`/v1/messages`, the one Claude Code speaks). Keep
+the AgrillaMoE terminal open and use the agent in a second one.
+
+### Claude Code
+
+1. Install Claude Code (requires Node.js 18+): `npm install -g @anthropic-ai/claude-code`
+2. Open a **second** terminal (leave AgrillaMoE running) and type:
+
+   **Linux / macOS:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:8071
+   export ANTHROPIC_AUTH_TOKEN=agrilla
+   unset ANTHROPIC_API_KEY
+   claude
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8071"
+   $env:ANTHROPIC_AUTH_TOKEN = "agrilla"
+   Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+   claude
+   ```
+
+3. Answer Claude Code's first-run questions, then give it a task
+   (`claude "explain this project"` or inside the chat). The token can be any
+   string (the server does not require keys).
+
+Tip: if answers feel slow because of the model's long thinking, restart
+AgrillaMoE with `--reasoning-budget 4096` (caps the thinking) or
+`--reasoning off` (direct answers).
+
+### Other open-source coding agents (OpenAI-compatible endpoint)
+
+Base URL: `http://127.0.0.1:8071/v1` — API key: any value.
+
+| Agent | How to connect |
+|---|---|
+| **Aider** | `export OPENAI_API_KEY=x` then `aider --model openai/qwen3.6-35b --openai-api-base http://127.0.0.1:8071/v1` |
+| **OpenCode** | `opencode` → provider "OpenAI compatible" → Base URL `http://127.0.0.1:8071/v1`, model `qwen3.6-35b` |
+| **Cline / Roo Code** (VS Code) | Settings → API Provider: **OpenAI Compatible** → Base URL `http://127.0.0.1:8071/v1` → model `qwen3.6-35b` |
+| **Continue** (VS Code/JetBrains) | config: provider `openai`, `apiBase: http://127.0.0.1:8071/v1`, model `qwen3.6-35b` |
+| **Zed** | settings.json → OpenAI-compatible provider with `api_url: http://127.0.0.1:8071/v1` |
+| **Goose** | `GOOSE_PROVIDER=openai`, `OPENAI_HOST=http://127.0.0.1:8071/v1/`, `GOOSE_MODEL=qwen3.6-35b` |
+
+See the exact loaded model name with:
+`curl http://127.0.0.1:8071/v1/models` (any name works anyway).
 
 ---
 

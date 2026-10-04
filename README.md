@@ -6,6 +6,10 @@ nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da
 [`vagrillo/llama.cpp`](https://github.com/vagrillo/llama.cpp) (branch
 `moe-expansion`) che implementa l'espansione runtime degli esperti routed.
 
+> 📘 **Primo utilizzo con una GPU da 16 GB?** Leggi **[gpu16gbguide.md](gpu16gbguide.md)** —
+> guida passo passo (italiano + english) per mettere in funzione Qwen3.6-35B-A3B
+> 2-bit con MoE-expansion su Windows e Linux.
+
 ```
     _                    _      _  __  __  _   _ ___
    / \   __ _  ___ _ __ | |    / \|  \/  |/ / | |_ _|

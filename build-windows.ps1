@@ -10,7 +10,10 @@ param(
     [string]$CudaArch = "native",
     [string]$BuildDir = "",
     [int]$Native = 1,
-    [int]$Jobs = 4
+    [int]$Jobs = 4,
+    [int]$Vulkan = 0,
+    [int]$Hip = 0,
+    [string]$AmdTargets = "gfx1101;gfx1100"
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,7 +65,40 @@ if (-not $BuildDir) {
 
 $Src = $PSScriptRoot
 
-cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=$Native -DCMAKE_CUDA_COMPILER=`"$NvccPath`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe --parallel $Jobs"
+# ---- backend aggiuntivi: Vulkan (NVIDIA+AMD+Intel) e HIP/ROCm (AMD) ----
+$ExtraDefs = ""
+if ($Vulkan -eq 1) {
+    $Vsdk = $env:VULKAN_SDK
+    if (-not $Vsdk) {
+        # layout con versione (C:\VulkanSDK\1.3.xxx) oppure flat (D:\VulkanSDK)
+        if (Test-Path "D:\VulkanSDK\Bin\glslc.exe") {
+            $Vsdk = "D:\VulkanSDK"
+        } else {
+            $Vsdk = Get-ChildItem "C:\VulkanSDK","D:\VulkanSDK" -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { Test-Path "$($_.FullName)\Bin\glslc.exe" } |
+                    Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+        }
+    }
+    if ($Vsdk) {
+        $env:VULKAN_SDK = $Vsdk
+        Write-Host "uso Vulkan SDK: $Vsdk"
+        $ExtraDefs += " -DGGML_VULKAN=ON"
+    } else {
+        Write-Warning "Vulkan=1 ma nessun Vulkan SDK trovato (VULKAN_SDK o C:\VulkanSDK): backend Vulkan saltato"
+    }
+}
+if ($Hip -eq 1) {
+    # HIP e' incompatibile con CUDA nello stesso binario
+    $ExtraDefs += " -DGGML_CUDA=OFF -DGGML_HIP=ON -DAMDGPU_TARGETS=$AmdTargets"
+    if (-not $env:HIP_PATH) {
+        $HipDir = Get-ChildItem "C:\Program Files\AMD\ROCm\*" -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending | Select-Object -First 1
+        if ($HipDir) { $env:HIP_PATH = $HipDir.FullName }
+    }
+    Write-Host "HIP/ROCm ON (target: $AmdTargets)$(if ($env:HIP_PATH) { ", HIP_PATH=$($env:HIP_PATH)" } else { ' (HIP_PATH non rilevato: installare AMD HIP SDK)' })"
+}
+
+cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=$Native$ExtraDefs -DCMAKE_CUDA_COMPILER=`"$NvccPath`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe --parallel $Jobs"
 if ($LASTEXITCODE -ne 0) { throw "build fallita (codice $LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force -Path "$Src\dist\windows" | Out-Null

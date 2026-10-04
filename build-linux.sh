@@ -29,6 +29,16 @@ elif [ "$NATIVE" = "0" ]; then
 else
     NCCL=1
 fi
+# Backend aggiuntivi:
+#   AGRILLA_VULKAN=1  -> anche backend Vulkan (NVIDIA/AMD/Intel, serve Vulkan SDK)
+#   AGRILLA_HIP=1     -> backend HIP/ROCm al posto di CUDA (AMD; gfx1101 = RX 7800 XT)
+VULKAN="${AGRILLA_VULKAN:-0}"
+HIP="${AGRILLA_HIP:-0}"
+AMD_TARGETS="${AGRILLA_AMD_TARGETS:-gfx1101;gfx1100}"
+BACKEND_DEFS="-DGGML_VULKAN=$VULKAN"
+if [ "$HIP" = "1" ]; then
+    BACKEND_DEFS="-DGGML_CUDA=OFF -DGGML_HIP=ON -DAMDGPU_TARGETS=$AMD_TARGETS"
+fi
 
 # nvcc: preferisci il toolkit NVIDIA reale (es. /usr/local/cuda) al pacchetto
 # distro (spesso una versione CUDA vecchia, incompatibile con gcc recenti)
@@ -46,6 +56,7 @@ cmake -S "$HERE" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_NATIVE="$NATIVE" \
     -DGGML_CUDA_NCCL="$NCCL" \
+    $BACKEND_DEFS \
     -DCMAKE_CUDA_COMPILER="$NVCC_BIN" \
     -DCMAKE_CUDA_ARCHITECTURES="$ARCH"
 

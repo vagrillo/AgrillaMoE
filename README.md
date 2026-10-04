@@ -164,6 +164,29 @@ con CUDA ≥ 12.8).
 > alla prima generazione (dispatch runtime vs guardie di compilazione). I
 > binari di release includono i cubin reali per tutte le architeture elencate.
 
+## GPU AMD (es. Radeon RX 7800 XT) e altre
+
+AgrillaMoE gira anche su AMD con il **backend Vulkan** (e, ricompilando, con
+**HIP/ROCm**). La MoE-expansion è logica di routing nel grafo: funziona
+uguale su tutti i backend (CUDA, Vulkan, ROCm, CPU).
+
+- **Vulkan (consigliato, funziona subito)**: build con backend Vulkan
+  abbinato a CUDA, stesso eseguibile per NVIDIA e AMD; su macchina AMD il
+  server usa la GPU via Vulkan (RDNA3 inclusa, RX 7800 XT = gfx1101). Serve
+  solo il driver con Vulkan runtime (sempre presente coi driver AMD/NVIDIA).
+  Build Windows: `build-windows.ps1 -Vulkan 1 ...`; Linux:
+  `AGRILLA_VULKAN=1 ./build-linux.sh`. All'avvio `--device Vulkan0` forza la
+  GPU Vulkan quando ce ne sono più di una (`--list-devices` per l'elenco).
+- **HIP/ROCm (prestazioni migliori su AMD, build dedicata)**: serve AMD HIP
+  SDK/ROCm; Windows: `build-windows.ps1 -Hip 1 -AmdTargets gfx1101`;
+  Linux: `AGRILLA_HIP=1 AGRILLA_AMD_TARGETS=gfx1101 ./build-linux.sh`
+  (RX 7800 XT = `gfx1101`; `gfx1100` = 7900 XTX/XT).
+
+Stato test: NVIDIA testato direttamente (CUDA e Vulkan); **AMD non testato su
+hardware nostro** — il percorso Vulkan è identico su tutte le GPU, ma
+feedback da utenti AMD (soprattutto RX 7800 XT) è benvenuto: aprite una
+issue su GitHub con GPU, driver e output di `agrillamoe --list-devices`.
+
 ## Uso
 
 ```bash

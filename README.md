@@ -35,7 +35,7 @@ nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da
    | parametro | valore |
    |---|---|
    | `--moe-experts` | 20 (model default 8) |
-   | `--moe-expert-threshold` | 0.80 (adaptive: 4..16 esperti/token) |
+   | `--moe-expert-threshold` | 0.80 (adaptive: 5..20 esperti/token) |
    | `--moe-expert-layer-start` | 25 |
    | `--moe-expert-layer-end` | 39 (su 40 livelli) |
    | decay / renorm | 0.50 / auto (default del fork) |

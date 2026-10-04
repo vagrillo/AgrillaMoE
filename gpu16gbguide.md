@@ -114,7 +114,7 @@ AgrillaMoE configura da solo, a ogni avvio:
 
 | Cosa | Valore | Perché |
 |---|---|---|
-| MoE-expansion | 16 esperti, soglia 0,80, livelli 25–39 | la ricetta che nei benchmark dà 84,3% su GPQA-Diamond |
+| MoE-expansion | 20 esperti, soglia 0,80, livelli 25–39 | la ricetta che nei benchmark dà 84,3% su GPQA-Diamond |
 | Contesto | 142.768 token (~140k) su 4 slot | come i benchmark; se la VRAM non basta si riduce da solo |
 | Endpoint | `127.0.0.1:8071` + browser automatico | tutto resta sul tuo PC |
 
@@ -297,7 +297,7 @@ curl http://127.0.0.1:8071/v1/chat/completions \
 
 | What | Value | Why |
 |---|---|---|
-| MoE-expansion | 16 experts, threshold 0.80, layers 25–39 | the recipe that scores 84.3% on GPQA-Diamond in benchmarks |
+| MoE-expansion | 20 experts, threshold 0.80, layers 25–39 | the recipe that scores 84.3% on GPQA-Diamond in benchmarks |
 | Context | 142,768 tokens (~140k) across 4 slots | same as the benchmarks; auto-shrinks if VRAM is tight |
 | Endpoint | `127.0.0.1:8071` + auto browser | everything stays on your PC |
 

@@ -536,7 +536,7 @@ static void print_header(const gpu_info & gi) {
                gi.name.c_str(), gi.vram_mib, human_gb(vram_budget(gi)).c_str());
     else
         printf("GPU non rilevata (nvidia-smi assente): proposta di default UD-Q3_K_XL\n");
-    printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n");
+    printf("Profilo MoE-expansion di default (Q8_0): esperti 20, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n");
     printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --reasoning off, --top-p, ...)\n");
     printf("GPU con poca VRAM? Avvia con --agrilla-streaming: esperti streamati da disco via mmap (solo quelli\ninstradati dal router vengono calcolati), attenzione/KV su GPU e prefetch dei layer successivi in RAM\n\n");
     fflush(stdout);
@@ -784,7 +784,7 @@ int main(int argc, char ** argv) {
     // ---- profilo MoE-expansion del benchmark RUN1209 (Q8_0) ----
     // Iniettato solo se l'utente non ha passato flag moe-* / q35-* e solo se
     // il modello e' davvero un MoE: il fork rifiuta i modelli densi
-    // ("moe expert expansion: model is not MoE"), e con top-K nativo >= 16
+    // ("moe expert expansion: model is not MoE"), e con top-K nativo >= 20
     // il profilo lo poterebbe potare invece di espandere.
     std::string mp = get_flag_value(argc, argv, {"-m", "--model"}, "");
     if (mp.empty()) mp = selected_model;
@@ -804,26 +804,26 @@ int main(int argc, char ** argv) {
         } else if (ec <= 0) {
             printf("[AgrillaMoE] modello non-MoE (expert_count assente): MoE-expansion non iniettata\n");
             moe_summary = "non iniettata (modello non-MoE)";
-        } else if (eu >= 16) {
-            printf("[AgrillaMoE] MoE con top-K nativo %lld >= 16: il profilo RUN1209 lo poterebbe potare, non iniettato\n",
+        } else if (eu >= 20) {
+            printf("[AgrillaMoE] MoE con top-K nativo %lld >= 20: il profilo lo poterebbe potare, non iniettato\n",
                    (long long) eu);
-            moe_summary = "non iniettata (top-K nativo >= 16)";
+            moe_summary = "non iniettata (top-K nativo >= 20)";
         } else if (bc == 40) {
             // firma di Qwen3.6-35B-A3B: 40 livelli -> profilo completo del benchmark
-            for (const char * a : {"--moe-experts", "16",
+            for (const char * a : {"--moe-experts", "20",
                                    "--moe-expert-threshold", "0.8",
                                    "--moe-expert-layer-start", "25",
                                    "--moe-expert-layer-end", "39"}) {
                 clean.push_back(a);
             }
-            moe_summary = "esperti 16, soglia 0.80, livelli 25-39 (RUN1209, 40 livelli)";
+            moe_summary = "esperti 20, soglia 0.80, livelli 25-39 (40 livelli)";
         } else {
             // altro MoE: espansione base senza il range di livelli calibrato sul 35B
-            for (const char * a : {"--moe-experts", "16",
+            for (const char * a : {"--moe-experts", "20",
                                    "--moe-expert-threshold", "0.8"}) {
                 clean.push_back(a);
             }
-            moe_summary = "esperti 16, soglia 0.80 (MoE a " + std::to_string(bc) +
+            moe_summary = "esperti 20, soglia 0.80 (MoE a " + std::to_string(bc) +
                           " livelli: range 25-39 del 35B non applicato)";
         }
     }

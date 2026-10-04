@@ -70,6 +70,27 @@ standard, es. `-c 8192`, `--temp 0.6`, `--top-p 0.95`, `-np 8`, `--threads 8`
 | `AGRILLA_MODELS_DIR` | lista di cartelle (`:` su Linux, `;` su Windows) |
 | `AGRILLA_REASONING_BUDGET` | inietta `--reasoning-budget N` (es. `8192`; `-1` illimitato, `0` chiude subito il pensiero) |
 | `AGRILLA_REASONING` | inietta `--reasoning on\|off\|auto` (es. `off` disabilita del tutto il pensiero) |
+| `--agrilla-streaming` / `AGRILLA_STREAMING=1` | **modalità streaming** (vedi sotto) per GPU con poca VRAM |
+
+### Modalità streaming (`--agrilla-streaming`) — GPU con poca VRAM
+
+Ispirata al progetto DS4 di antirez (streaming dei pesi con finestra in
+memoria): pensata per GPU come una GTX 1050 4GB con un quant piccolo
+(UD-IQ1_M ~9.4 GB) su disco. Allo startup AgrillaMoE configura:
+
+- `--cpu-moe`: i pesi degli **esperti** restano su disco e arrivano via mmap;
+  a ogni token `mul_mat_id` calcola **solo gli esperti scelti dal router**
+  (la selezione statistica la fa già il modello)
+- `-ngl 99`: attenzione, norme e KV cache vanno in GPU (ridotti da `fit_params`
+  se la VRAM non basta)
+- contesto compatto (8192, 1 slot) se non diversamente specificato
+- un thread di **prefetch sequenziale** legge il GGUF in anticipo portando in
+  cache RAM i layer successivi (il layout GGUF è sequenziale per layer), così
+  i page fault non aspettano l'SSD
+
+Su Windows c'è il launcher pronto `agrillamoe-lite.cmd` (usa `D:\models`).
+La predizione **per esperte** dei layer successivi (modello previsionale
+addestrato su log JSONL delle attivazioni) è descritta in `moe-predict.md`.
 
 ### Parametri di generazione (flag nativi di llama-server, tutti passano)
 

@@ -114,6 +114,17 @@ static bool have_flag(int argc, char ** argv, std::initializer_list<const char *
     return false;
 }
 
+// come have_flag ma sulla lista di argomenti gia' processata (evita doppie
+// iniezioni quando una modalita' come --agrilla-streaming ha gia' aggiunto un flag)
+static bool args_has(const std::vector<std::string> & args, std::initializer_list<const char *> names) {
+    for (const auto & t : args)
+        for (const char * n : names) {
+            std::string nm(n);
+            if (t == nm || t.rfind(nm + "=", 0) == 0) return true;
+        }
+    return false;
+}
+
 static std::string get_flag_value(int argc, char ** argv, std::initializer_list<const char *> names,
                                   const std::string & fallback) {
     for (int i = 1; i < argc; ++i) {
@@ -198,6 +209,42 @@ static const std::vector<quant_entry> k_catalog = {
 
 static unsigned long long gb_to_bytes(double gb) {
     return (unsigned long long) (gb * 1024.0 * 1024.0 * 1024.0);
+}
+
+// ------------------------------------------------- modalita' streaming ------
+
+// Variant "streaming" (ispirata a DS4 di antirez): i pesi restano su disco e
+// arrivano via mmap; la cache del filesystem fa da staging in RAM e la VRAM
+// tiene solo attenzione/KV (--cpu-moe + -ngl). Questo thread legge il file in
+// sequenza continua per portare in cache le pagine dei tensore/layer che il
+// modello tocchera' prossimi: il layout GGUF e' sequenziale per layer, quindi
+// leggere avanti = anticipare i layer successivi. Gli esperti effettivamente
+// calcolati restano solo quelli scelti dal router (mul_mat_id non tocca le
+// righe degli altri) — la "selezione statistica" la fa gia' il routing del
+// modello, qui anticipiamo il caricamento di cio' che sta' arrivando.
+static void prefetch_model_loop(const std::string & path) {
+    std::vector<char> buf(1 << 20);   // 1 MiB per lettura
+    for (;;) {                        // ciclo: i layer si riattraversano a ogni token
+#ifdef _WIN32
+        HANDLE f = CreateFileA(path.c_str(), GENERIC_READ,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (f == INVALID_HANDLE_VALUE) return;
+        DWORD rd = 0;
+        while (ReadFile(f, buf.data(), (DWORD) buf.size(), &rd, nullptr) && rd > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));   // ~500 MB/s
+        }
+        CloseHandle(f);
+#else
+        FILE * f = fopen(path.c_str(), "rb");
+        if (!f) return;
+        while (fread(buf.data(), 1, buf.size(), f) > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        fclose(f);
+#endif
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
 }
 
 // ----------------------------------------------- lettura metadati GGUF ------
@@ -490,7 +537,8 @@ static void print_header(const gpu_info & gi) {
     else
         printf("GPU non rilevata (nvidia-smi assente): proposta di default UD-Q3_K_XL\n");
     printf("Profilo MoE-expansion di default (benchmark RUN1209, Q8_0): esperti 16, soglia 0.80, livelli 25-39, decay 0.50, renorm auto\n");
-    printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --reasoning off, --top-p, ...)\n\n");
+    printf("Contesto di default 142768 (~140k) su 4 slot (35840/slot); temperatura, reasoning e gli altri parametri\nsi passano con i flag di llama-server (--temp, --reasoning-budget N, --reasoning off, --top-p, ...)\n");
+    printf("GPU con poca VRAM? Avvia con --agrilla-streaming: esperti streamati da disco via mmap (solo quelli\ninstradati dal router vengono calcolati), attenzione/KV su GPU e prefetch dei layer successivi in RAM\n\n");
     fflush(stdout);
 }
 
@@ -678,6 +726,8 @@ int main(int argc, char ** argv) {
                                 !have_flag(argc, argv, {"--no-moe-expansion", "--agrilla-no-moe-expansion"});
     const bool opt_assume_yes = env_flag_on("AGRILLA_YES") ||
                                 have_flag(argc, argv, {"--agrilla-yes"});
+    const bool opt_streaming  = env_flag_on("AGRILLA_STREAMING") ||
+                                have_flag(argc, argv, {"--agrilla-streaming"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir"}, "");
@@ -688,7 +738,8 @@ int main(int argc, char ** argv) {
         std::string t = argv[i];
         if (t == "--no-browser" || t == "--agrilla-no-browser" ||
             t == "--no-moe-expansion" || t == "--agrilla-no-moe-expansion" ||
-            t == "--agrilla-yes" || t == "--agrilla-list-models") {
+            t == "--agrilla-yes" || t == "--agrilla-list-models" ||
+            t == "--agrilla-streaming") {
             continue;
         }
         if (t == "--agrilla-models-dir") { ++i; continue; }   // salta anche il valore
@@ -735,6 +786,8 @@ int main(int argc, char ** argv) {
     // il modello e' davvero un MoE: il fork rifiuta i modelli densi
     // ("moe expert expansion: model is not MoE"), e con top-K nativo >= 16
     // il profilo lo poterebbe potare invece di espandere.
+    std::string mp = get_flag_value(argc, argv, {"-m", "--model"}, "");
+    if (mp.empty()) mp = selected_model;
     std::string moe_summary = "configurazione utente";
     if (!opt_moe_on) {
         moe_summary = "disattivata (--no-moe-expansion)";
@@ -743,8 +796,6 @@ int main(int argc, char ** argv) {
             "--moe-expert-threshold", "--q35-expert-threshold",
             "--moe-expert-decay-end", "--moe-no-expert-decay", "--q35-no-expert-decay",
             "--moe-expert-renorm", "--moe-expert-layer-start", "--moe-expert-layer-end"})) {
-        std::string mp = get_flag_value(argc, argv, {"-m", "--model"}, "");
-        if (mp.empty()) mp = selected_model;
         int64_t ec = 0, eu = 0, bc = 0;
         bool readable = !mp.empty() && gguf_probe_moe(mp, ec, eu, bc);
         if (!readable) {
@@ -774,6 +825,25 @@ int main(int argc, char ** argv) {
             }
             moe_summary = "esperti 16, soglia 0.80 (MoE a " + std::to_string(bc) +
                           " livelli: range 25-39 del 35B non applicato)";
+        }
+    }
+
+    // ---- modalita' streaming (stile DS4): pesi esperti via mmap da disco,
+    //      attenzione/KV su GPU, prefetch sequenziale dei layer in RAM ----
+    if (opt_streaming) {
+        const std::initializer_list<const char *> moe_placement = {
+            "-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "-ot", "--override-tensor"};
+        if (!have_flag(argc, argv, moe_placement) && !args_has(clean, moe_placement)) {
+            clean.push_back("--cpu-moe");
+        }
+        const std::initializer_list<const char *> ngl_names = {"-ngl", "--gpu-layers", "--n-gpu-layers"};
+        if (!have_flag(argc, argv, ngl_names) && !args_has(clean, ngl_names)) {
+            clean.push_back("-ngl"); clean.push_back("99");
+        }
+        if (!mp.empty()) {
+            printf("[AgrillaMoE] streaming: esperti su CPU via mmap da disco (calcolati solo quelli instradati),\n"
+                   "                     attenzione/KV su GPU, prefetch sequenziale dei layer in RAM attivo\n");
+            std::thread(prefetch_model_loop, mp).detach();
         }
     }
 
@@ -809,8 +879,14 @@ int main(int argc, char ** argv) {
     //      -c 142768 (~140k) con --parallel 4 -> 35840 token per slot.
     //      fit_params del fork riduce automaticamente il contesto se la VRAM
     //      non basta, quindi e' sicuro anche su GPU piccole.
-    if (!have_flag(argc, argv, {"-c", "--ctx-size"})) { clean.push_back("-c"); clean.push_back("142768"); }
-    if (!have_flag(argc, argv, {"-np", "--parallel"})) { clean.push_back("--parallel"); clean.push_back("4"); }
+    if (!have_flag(argc, argv, {"-c", "--ctx-size"}) && !args_has(clean, {"-c", "--ctx-size"})) {
+        clean.push_back("-c");
+        clean.push_back(opt_streaming ? "8192" : "142768");
+    }
+    if (!have_flag(argc, argv, {"-np", "--parallel"}) && !args_has(clean, {"-np", "--parallel"})) {
+        clean.push_back("--parallel");
+        clean.push_back(opt_streaming ? "1" : "4");
+    }
 
     // ---- bind di default 127.0.0.1:8071 ----
     if (!have_flag(argc, argv, {"--host"})) { clean.push_back("--host"); clean.push_back(AGRILLA_DEFAULT_HOST); }
@@ -872,6 +948,9 @@ int main(int argc, char ** argv) {
         }
     }
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
+    if (opt_streaming) {
+        printf("[AgrillaMoE]   streaming     : attivo (--cpu-moe + mmap da disco, attenzione/KV su GPU, prefetch layer in RAM)\n");
+    }
     printf("[AgrillaMoE]   browser       : %s\n", opt_browser_on ? "apertura automatica al ready" : "disattivato");
     printf("\n");
     fflush(stdout);

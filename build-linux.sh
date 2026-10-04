@@ -20,6 +20,15 @@ BUILD_DIR="${AGRILLA_BUILD_DIR:-$HOME/agrilla-build-linux}"
 ARCH="${AGRILLA_CUDA_ARCH:-native}"
 JOBS="${AGRILLA_JOBS:-6}"
 NATIVE="${AGRILLA_NATIVE:-1}"
+# NCCL: ON di default (multi-GPU), OFF in modalita' portabile — libnccl.so non e'
+# garantita sulle macchine di destinazione e il binario deve essere autonomo
+if [ -n "${AGRILLA_NCCL:-}" ]; then
+    NCCL="$AGRILLA_NCCL"
+elif [ "$NATIVE" = "0" ]; then
+    NCCL=0
+else
+    NCCL=1
+fi
 
 # nvcc: preferisci il toolkit NVIDIA reale (es. /usr/local/cuda) al pacchetto
 # distro (spesso una versione CUDA vecchia, incompatibile con gcc recenti)
@@ -36,6 +45,7 @@ echo "uso nvcc: $NVCC_BIN ($("$NVCC_BIN" --version | tail -1))"
 cmake -S "$HERE" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_NATIVE="$NATIVE" \
+    -DGGML_CUDA_NCCL="$NCCL" \
     -DCMAKE_CUDA_COMPILER="$NVCC_BIN" \
     -DCMAKE_CUDA_ARCHITECTURES="$ARCH"
 

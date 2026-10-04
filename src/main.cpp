@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <thread>
@@ -197,6 +198,91 @@ static const std::vector<quant_entry> k_catalog = {
 
 static unsigned long long gb_to_bytes(double gb) {
     return (unsigned long long) (gb * 1024.0 * 1024.0 * 1024.0);
+}
+
+// ----------------------------------------------- lettura metadati GGUF ------
+
+// Legge gli header GGUF (solo sezione chiavi/valori, all'inizio del file) per
+// capire se il modello e' un MoE e su quanti livelli: il profilo di espansione
+// va iniettato solo sui MoE, perche' il fork rifiuta i modelli densi
+// ("moe expert expansion: model is not MoE"). Host little-endian (x86/ARM LE).
+static bool gguf_probe_moe(const std::string & path, int64_t & expert_count,
+                           int64_t & expert_used, int64_t & block_count) {
+    expert_count = 0; expert_used = 0; block_count = 0;
+    FILE * f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    bool ok = false;
+    do {
+        auto rd_u32 = [&](uint32_t & v) { return fread(&v, 4, 1, f) == 1; };
+        auto rd_u64 = [&](uint64_t & v) { return fread(&v, 8, 1, f) == 1; };
+        // ritorna 1 = letto, 0 = eof/errore, -1 = tipo non scalare (va saltato a parte)
+        auto rd_scalar = [&](int type, int64_t & out) -> int {
+            uint8_t b8; uint16_t b16; uint32_t b32; uint64_t b64; float f32; double f64;
+            switch (type) {
+                case 0:  if (fread(&b8,  1, 1, f) != 1) return 0; out = b8;            return 1;
+                case 1:  if (fread(&b8,  1, 1, f) != 1) return 0; out = (int8_t) b8;   return 1;
+                case 2:  if (fread(&b16, 2, 1, f) != 1) return 0; out = b16;           return 1;
+                case 3:  if (fread(&b16, 2, 1, f) != 1) return 0; out = (int16_t) b16; return 1;
+                case 4:  if (fread(&b32, 4, 1, f) != 1) return 0; out = b32;           return 1;
+                case 5:  if (fread(&b32, 4, 1, f) != 1) return 0; out = (int32_t) b32; return 1;
+                case 6:  if (fread(&f32, 4, 1, f) != 1) return 0; out = (int64_t) f32; return 1;
+                case 7:  if (fread(&b8,  1, 1, f) != 1) return 0; out = b8 ? 1 : 0;    return 1;
+                case 10:
+                case 11: if (fread(&b64, 8, 1, f) != 1) return 0; out = (int64_t) b64; return 1;
+                case 12: if (fread(&f64, 8, 1, f) != 1) return 0; out = (int64_t) f64; return 1;
+                default: return -1;    // 8 = string, 9 = array
+            }
+        };
+        std::function<bool(int)> skip_value = [&](int type) -> bool {
+            if (type == 8) {                                   // stringa
+                uint64_t n;
+                if (!rd_u64(n)) return false;
+                return fseek(f, (long) n, SEEK_CUR) == 0;
+            }
+            if (type == 9) {                                   // array
+                uint32_t t; uint64_t n;
+                if (!rd_u32(t) || !rd_u64(n)) return false;
+                for (uint64_t i = 0; i < n; ++i)
+                    if (!skip_value((int) t)) return false;
+                return true;
+            }
+            int64_t v;
+            return rd_scalar(type, v) == 1;
+        };
+        uint32_t magic = 0, version = 0;
+        uint64_t n_tensors = 0, n_kv = 0;
+        if (!rd_u32(magic) || !rd_u32(version) || !rd_u64(n_tensors) || !rd_u64(n_kv)) break;
+        if (magic != 0x46554747u) break;                       // "GGUF" little-endian
+        for (uint64_t i = 0; i < n_kv; ++i) {
+            uint64_t klen;
+            if (!rd_u64(klen) || klen == 0 || klen > 4096) break;
+            std::string key(klen, '\0');
+            if (fread(&key[0], 1, klen, f) != klen) { klen = (uint64_t) -1; break; }
+            uint32_t vt;
+            if (!rd_u32(vt)) break;
+            auto ends = [&](const char * suffix) {
+                std::string s(suffix);
+                return key.size() >= s.size() && key.compare(key.size() - s.size(), s.size(), s) == 0;
+            };
+            bool want_used   = ends(".expert_count_used");
+            bool want_count  = !want_used && ends(".expert_count");
+            bool want_blocks = ends(".block_count");
+            if (want_used || want_count || want_blocks) {
+                int64_t v = 0;
+                int r = rd_scalar((int) vt, v);
+                if (r == 0) break;
+                if (r == -1) { if (!skip_value((int) vt)) break; continue; }
+                if      (want_used)   expert_used  = v;
+                else if (want_count)  expert_count = v;
+                else                  block_count  = v;
+            } else if (!skip_value((int) vt)) {
+                break;
+            }
+        }
+        ok = true;
+    } while (false);
+    fclose(f);
+    return ok;
 }
 
 // ------------------------------------------------------------- modelli dir --
@@ -632,28 +718,62 @@ int main(int argc, char ** argv) {
     }
 
     // ---- modello: -m vince; altrimenti selezione interattiva ----
+    std::string selected_model;
     if (!have_flag(argc, argv, {"-m", "--model"})) {
         selection_result sel = select_model(extra_dir, opt_assume_yes);
         if (sel.cancelled || sel.path.empty()) {
             printf("[AgrillaMoE] nessun modello selezionato, esco.\n");
             return sel.cancelled ? 0 : 1;
         }
+        selected_model = sel.path;
         clean.push_back("-m");
         clean.push_back(sel.path);
     }
 
-    // ---- profilo MoE-expansion del benchmark RUN1209 (Q8_0) se l'utente non
-    //      ha passato nessun flag moe-* / q35-* ----
-    if (opt_moe_on && !have_flag(argc, argv, {
+    // ---- profilo MoE-expansion del benchmark RUN1209 (Q8_0) ----
+    // Iniettato solo se l'utente non ha passato flag moe-* / q35-* e solo se
+    // il modello e' davvero un MoE: il fork rifiuta i modelli densi
+    // ("moe expert expansion: model is not MoE"), e con top-K nativo >= 16
+    // il profilo lo poterebbe potare invece di espandere.
+    std::string moe_summary = "configurazione utente";
+    if (!opt_moe_on) {
+        moe_summary = "disattivata (--no-moe-expansion)";
+    } else if (!have_flag(argc, argv, {
             "--moe-experts", "--q35-experts", "--moe-experts-add",
             "--moe-expert-threshold", "--q35-expert-threshold",
             "--moe-expert-decay-end", "--moe-no-expert-decay", "--q35-no-expert-decay",
             "--moe-expert-renorm", "--moe-expert-layer-start", "--moe-expert-layer-end"})) {
-        for (const char * a : {"--moe-experts", "16",
-                               "--moe-expert-threshold", "0.8",
-                               "--moe-expert-layer-start", "25",
-                               "--moe-expert-layer-end", "39"}) {
-            clean.push_back(a);
+        std::string mp = get_flag_value(argc, argv, {"-m", "--model"}, "");
+        if (mp.empty()) mp = selected_model;
+        int64_t ec = 0, eu = 0, bc = 0;
+        bool readable = !mp.empty() && gguf_probe_moe(mp, ec, eu, bc);
+        if (!readable) {
+            printf("[AgrillaMoE] metadati GGUF non leggibili (%s): MoE-expansion non iniettata\n", mp.c_str());
+            moe_summary = "non iniettata (GGUF non leggibile)";
+        } else if (ec <= 0) {
+            printf("[AgrillaMoE] modello non-MoE (expert_count assente): MoE-expansion non iniettata\n");
+            moe_summary = "non iniettata (modello non-MoE)";
+        } else if (eu >= 16) {
+            printf("[AgrillaMoE] MoE con top-K nativo %lld >= 16: il profilo RUN1209 lo poterebbe potare, non iniettato\n",
+                   (long long) eu);
+            moe_summary = "non iniettata (top-K nativo >= 16)";
+        } else if (bc == 40) {
+            // firma di Qwen3.6-35B-A3B: 40 livelli -> profilo completo del benchmark
+            for (const char * a : {"--moe-experts", "16",
+                                   "--moe-expert-threshold", "0.8",
+                                   "--moe-expert-layer-start", "25",
+                                   "--moe-expert-layer-end", "39"}) {
+                clean.push_back(a);
+            }
+            moe_summary = "esperti 16, soglia 0.80, livelli 25-39 (RUN1209, 40 livelli)";
+        } else {
+            // altro MoE: espansione base senza il range di livelli calibrato sul 35B
+            for (const char * a : {"--moe-experts", "16",
+                                   "--moe-expert-threshold", "0.8"}) {
+                clean.push_back(a);
+            }
+            moe_summary = "esperti 16, soglia 0.80 (MoE a " + std::to_string(bc) +
+                          " livelli: range 25-39 del 35B non applicato)";
         }
     }
 
@@ -731,9 +851,7 @@ int main(int argc, char ** argv) {
     }
 
     printf("[AgrillaMoE] avvio llama-server con:\n");
-    printf("[AgrillaMoE]   MoE expansion : %s\n",
-           (opt_moe_on && !have_flag(argc, argv, {"--moe-experts", "--q35-experts", "--moe-experts-add"}))
-               ? "esperti 16, soglia 0.80, livelli 25-39 (RUN1209)" : "configurazione utente");
+    printf("[AgrillaMoE]   MoE expansion : %s\n", moe_summary.c_str());
     {
         long long ctx_ll = atoll(bctx.c_str());
         long long np_ll  = atoll(bnp.c_str());

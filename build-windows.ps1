@@ -8,7 +8,9 @@
 # Da eseguire in Windows PowerShell:  powershell -ExecutionPolicy Bypass -File build-windows.ps1
 param(
     [string]$CudaArch = "native",
-    [string]$BuildDir = ""
+    [string]$BuildDir = "",
+    [int]$Native = 1,
+    [int]$Jobs = 4
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,7 +62,7 @@ if (-not $BuildDir) {
 
 $Src = $PSScriptRoot
 
-cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=`"$NvccPath`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe"
+cmd /c "`"$VS\VC\Auxiliary\Build\vcvars64.bat`" && `"$CMakeExe`" -S `"$Src`" -B `"$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=$Native -DCMAKE_CUDA_COMPILER=`"$NvccPath`" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CUDA_ARCHITECTURES=$CudaArch && `"$CMakeExe`" --build `"$BuildDir`" --target agrillamoe --parallel $Jobs"
 if ($LASTEXITCODE -ne 0) { throw "build fallita (codice $LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force -Path "$Src\dist\windows" | Out-Null

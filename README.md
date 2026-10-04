@@ -101,24 +101,43 @@ forzato con `-DAGRILLA_LLAMA_DIR=...`).
 ./build-linux.sh             # output: dist/linux/agrillamoe
 ```
 
-Variabili: `AGRILLA_CUDA_ARCH` (default `native`; es. `61` per Pascal,
-`75;86` multi-arch), `AGRILLA_BUILD_DIR`, `AGRILLA_JOBS`.
-Requisiti: cmake ≥ 3.24, gcc, CUDA toolkit 12+. Il binario incorpora backend
-ggml/CUDA, cudart **e** cuBLAS statici: l'unica dipendenza dinamica è il
-driver `libcuda.so` (e glibc).
+Variabili: `AGRILLA_CUDA_ARCH` (default `native`; es. `61`, `70;80;86`),
+`AGRILLA_NATIVE` (`1` default = `-march=native` dell'host di build; `0` = CPU
+baseline portabile, per binari da ridistribuire), `AGRILLA_BUILD_DIR`,
+`AGRILLA_JOBS`. Requisiti: cmake ≥ 3.24, gcc, CUDA toolkit 12+.
+
+**Binario portabile universale** (ridistribuibile, tutte le NVIDIA ≥8 GB da
+RTX 20xx in poi più Pascal/Volta):
+
+```bash
+AGRILLA_NATIVE=0 AGRILLA_CUDA_ARCH="61;70;75;80;86;89;120" ./build-linux.sh
+```
+
+(sm_120 = RTX 50xx richiede CUDA toolkit ≥ 12.8; l'ultima arch elencata viene
+inclusa anche come PTX, quindi GPU piu' nuove funzionano via JIT del driver.)
 
 ### Windows (staticamente linkato, CUDA 12+)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build-windows.ps1   # output: dist\windows\agrillamoe.exe
+# portabile multi-arch:
+powershell -ExecutionPolicy Bypass -File build-windows.ps1 -CudaArch "61;75;86;89" -Native 0 -Jobs 3
 ```
 
-Parametri: `-CudaArch 61` (default `native`), `-BuildDir D:\agrilla-build`.
-Requisiti: Visual Studio 2019 BuildTools (VC++ + CMake/Ninja bundled) e CUDA
-toolkit 12.x. L'eseguibile incorpora backend e cudart statici; NVIDIA non
-distribuisce cuBLAS statico per Windows, quindi l'exe carica
-`cublas64_12.dll`/`cublasLt64_12.dll` (presenti su ogni sistema con CUDA 12+
-installato o driver recente).
+Parametri: `-CudaArch` (default `native`), `-Native` (default 1), `-Jobs`
+(default 4), `-BuildDir`. Requisiti: Visual Studio 2019 BuildTools (VC++ +
+CMake/Ninja bundled) e CUDA toolkit 12.x. Per RTX 50xx (sm_120) servono CUDA
+toolkit ≥ 12.8: `-CudaArch "61;75;86;89;120"`.
+
+**Copertura GPU dei binari di release**: Linux = sm 61, 70, 75, 80, 86, 89,
+120 + PTX (GTX 10xx, V100, RTX 20xx/30xx/40xx/50xx, A100); Windows = sm 61,
+75, 86, 89 + PTX 89 (GTX 10xx, RTX 20xx/30xx/40xx; RTX 50xx via ricompilazione
+con CUDA ≥ 12.8).
+
+> Nota: non usare su una GPU un binario compilato solo per un'altra
+> architettura — anche se il PTX permette l'avvio, i kernel possono crashare
+> alla prima generazione (dispatch runtime vs guardie di compilazione). I
+> binari di release includono i cubin reali per tutte le architeture elencate.
 
 ## Uso
 

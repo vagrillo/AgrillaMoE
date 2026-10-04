@@ -29,7 +29,7 @@ nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da
    e lo scarica con la CLI `hf` dopo conferma. Il default con `invio` è sempre
    il consigliato; `d` = scarica un altro quant, `x` = annulla.
 2. **Profilo MoE-expansion di default** — esattamente quello usato nei
-   benchmark con **Qwen3.6-35B-A3B Q8_0** (RUN1209, GPQA-Diamond: **84.34%**
+   benchmark con **Qwen3.6-35B-A3B Q8_0** ( GPQA-Diamond: **84.34%**
    con espansione vs 81.82% nativo top-8):
 
    | parametro | valore |

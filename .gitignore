@@ -3,3 +3,4 @@ dist/
 llama.cpp/
 *.gguf
 __pycache__/
+data-moe/

@@ -726,8 +726,10 @@ int main(int argc, char ** argv) {
                                 !have_flag(argc, argv, {"--no-moe-expansion", "--agrilla-no-moe-expansion"});
     const bool opt_assume_yes = env_flag_on("AGRILLA_YES") ||
                                 have_flag(argc, argv, {"--agrilla-yes"});
-    const bool opt_streaming  = env_flag_on("AGRILLA_STREAMING") ||
+    bool opt_streaming       = env_flag_on("AGRILLA_STREAMING") ||
                                 have_flag(argc, argv, {"--agrilla-streaming"});
+    const bool opt_no_autostream = env_flag_on("AGRILLA_NO_AUTOSTREAM") ||
+                                   have_flag(argc, argv, {"--agrilla-no-autostream"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir"}, "");
@@ -739,7 +741,7 @@ int main(int argc, char ** argv) {
         if (t == "--no-browser" || t == "--agrilla-no-browser" ||
             t == "--no-moe-expansion" || t == "--agrilla-no-moe-expansion" ||
             t == "--agrilla-yes" || t == "--agrilla-list-models" ||
-            t == "--agrilla-streaming") {
+            t == "--agrilla-streaming" || t == "--agrilla-no-autostream") {
             continue;
         }
         if (t == "--agrilla-models-dir") { ++i; continue; }   // salta anche il valore
@@ -830,6 +832,29 @@ int main(int argc, char ** argv) {
 
     // ---- modalita' streaming (stile DS4): pesi esperti via mmap da disco,
     //      attenzione/KV su GPU, prefetch sequenziale dei layer in RAM ----
+    // Se il modello non entra in VRAM e l'utente non ha scelto un placement
+    // esplicito, la attiviamo da sole: lo split a strati di default su GPU
+    // piccole e' il regime peggiore (ping-pong CPU<->GPU a ogni layer,
+    // misurato 4x piu' lento dello streaming sulla GTX 1050 4GB).
+    if (!opt_streaming && !opt_no_autostream && !mp.empty()) {
+        const bool user_placement = have_flag(argc, argv, {
+            "-ngl", "--gpu-layers", "--n-gpu-layers",
+            "-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe",
+            "-ot", "--override-tensor"});
+        if (!user_placement) {
+            gpu_info gi = detect_gpu();
+            unsigned long long budget = vram_budget(gi);
+            std::error_code ec;
+            unsigned long long msize = fs::exists(mp, ec) ? fs::file_size(mp, ec) : 0;
+            if (budget > 0 && msize > budget + budget / 8) {
+                printf("[AgrillaMoE] il modello (%s) supera la VRAM (%s): attivo la modalita' streaming\n"
+                       "                     (attenzione/KV su GPU, esperti via mmap da disco; su GPU piccole e' ~4x\n"
+                       "                     piu' veloce dello split a strati). Per lo split classico: -ngl 99.\n",
+                       human_gb(msize).c_str(), human_gb(budget).c_str());
+                opt_streaming = true;
+            }
+        }
+    }
     if (opt_streaming) {
         const std::initializer_list<const char *> moe_placement = {
             "-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "-ot", "--override-tensor"};

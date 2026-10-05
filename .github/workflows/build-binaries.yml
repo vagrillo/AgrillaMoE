@@ -70,10 +70,28 @@ jobs:
           M=models/Qwen3-30B-A3B-UD-IQ1_S.gguf
           echo "=== nativo (top-8) ==="
           ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -fa auto 2>/dev/null || ./build/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2
-          echo "=== espansione 20 esperti, T 0.8, tutti i layer ==="
-          ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -moe-experts 20 -moe-expert-threshold 0.8 2>/dev/null || true
-          echo "=== espansione 20, livelli 25-39 (profilo 35B) ==="
-          ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -moe-experts 20 -moe-expert-threshold 0.8 -moe-expert-layer-start 0.6 -moe-expert-layer-end 0.97 2>/dev/null || true
+          # llama-bench non espone i flag moe-*: uso agrillamoe (llama-server) e il timing del log
+          bench_srv() {
+            TAG="$1"; shift
+            ./build/bin/agrillamoe -m "$M" --host 127.0.0.1 --port 8099 --no-browser \
+              --reasoning off -c 2048 -np 1 -r 1 "$@" > /tmp/srv-$TAG.log 2>&1 &
+            SRV=$!
+            for i in $(seq 1 100); do
+              sleep 3
+              curl -sf -m 3 http://127.0.0.1:8099/health >/dev/null 2>&1 && break
+              kill -0 $SRV 2>/dev/null || break
+            done
+            curl -s -m 600 http://127.0.0.1:8099/v1/chat/completions \
+              -H 'Content-Type: application/json' \
+              -d '{"messages":[{"role":"user","content":"Scrivi un paragrafo lungo sull universo."}],"max_tokens":64,"temperature":0}' >/dev/null
+            echo "=== $TAG ==="
+            grep -E "prompt eval time|eval time" /tmp/srv-$TAG.log | tail -2
+            kill $SRV 2>/dev/null
+            sleep 3
+          }
+          bench_srv "espansione 20 esperti T0.8 tutti i layer" --moe-experts 20 --moe-expert-threshold 0.8
+          bench_srv "espansione 20 T0.8 layer 25-39 (profilo 35B)" --moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39
+          bench_srv "nativo top-8 (via server, confronto tg)" --no-moe-expansion
       - name: Report
         run: |
           echo "Confronta le righe tg (decode) e pp (prompt) tra nativo e espansione."

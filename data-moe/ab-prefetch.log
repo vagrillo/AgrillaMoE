@@ -1,0 +1,53 @@
+[AgrillaMoE] il modello (34.4 GB) supera la VRAM (14.7 GB): attivo la modalita' streaming
+                     (attenzione/KV su GPU, esperti via mmap da disco; su GPU piccole e' ~4x
+                     piu' veloce dello split a strati). Per lo split classico: -ngl 99.
+[AgrillaMoE] gpu-streaming: tutti i layer su GPU con memoria unificata, il driver
+                     pagina i pesi RAM<->VRAM al bisogno (VRAM = finestra di esecuzione);
+                     prefetch disco->RAM attivo per alimentare il paging
+[AgrillaMoE] gpu-streaming: attenzione --cpu-moe/-ot espliciti disattivano il piping su GPU
+[AgrillaMoE] avvio llama-server con:
+[AgrillaMoE]   MoE expansion : esperti 20, soglia 0.80, livelli 25-39 (40 livelli)
+[AgrillaMoE]   contesto      : 2048 token, 1 slot da ~2048 (ridotto in automatico se la VRAM non basta)
+[AgrillaMoE]   reasoning     : disattivato (--reasoning off)
+[AgrillaMoE]   endpoint      : http://127.0.0.1:8095
+[AgrillaMoE]   streaming     : GPU (tutti i layer su GPU, pesi paginati RAM<->VRAM dal driver, -ngl 99 --fit off)
+[AgrillaMoE]   browser       : disattivato
+
+0.00.101.942 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.103.070 W srv  llama_server: -----------------
+0.00.103.076 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.103.077 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.103.078 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.103.079 W srv  llama_server: -----------------
+0.00.106.232 I srv    load_model: loading model 'models/Q8.gguf'
+moe: routed experts per token: 20 (model default 8; ranks 9..20 get linear influence decay 0.99..0.50)
+moe: expert threshold: keep experts while p >= 0.80 x p(rank 10) (experts 5..20 per token)
+moe: expansion active on layers 25..39 of 40
+3.51.801.952 I cmn          init: llama threadpool init, n_threads = 36
+4.20.272.140 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 2048, kv_unified = 'false'
+4.20.485.242 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+4.20.498.876 I srv  llama_server: model loaded
+4.20.498.891 I srv  llama_server: listening on http://127.0.0.1:8095
+4.23.444.835 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+4.23.454.366 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+4.26.623.020 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =     14, progress = 0.78, t =   3.17 s / 4.42 tokens per second
+4.42.968.182 I slot print_timing: id  0 | task 0 | prompt eval time =    5184.89 ms /    18 tokens (  288.05 ms per token,     3.47 tokens per second)
+4.42.968.188 I slot print_timing: id  0 | task 0 |        eval time =   14328.85 ms /    60 tokens (  242.86 ms per token,     4.12 tokens per second)
+4.42.968.189 I slot print_timing: id  0 | task 0 |       total time =   19513.73 ms /    78 tokens
+4.42.968.190 I slot print_timing: id  0 | task 0 |    graphs reused =         59
+4.42.968.260 I slot      release: id  0 | task 0 | stop processing: n_tokens = 77, truncated = 0
+4.42.986.337 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.294 (> 0.100 thold), f_keep = 0.065
+4.43.094.145 I slot launch_slot_: id  0 | task 62 | processing task, is_child = 0
+5.09.607.282 I slot print_timing: id  0 | task 62 | n_gen =    100, tg =   4.31 t/s, tg_3s =   4.35 t/s
+5.12.728.582 I slot print_timing: id  0 | task 62 | n_gen =    115, tg =   4.37 t/s, tg_3s =   4.81 t/s
+5.15.930.889 I slot print_timing: id  0 | task 62 | n_gen =    127, tg =   4.30 t/s, tg_3s =   3.75 t/s
+5.19.139.294 I slot print_timing: id  0 | task 62 | n_gen =    141, tg =   4.31 t/s, tg_3s =   4.36 t/s
+5.22.222.783 I slot print_timing: id  0 | task 62 | n_gen =    158, tg =   4.41 t/s, tg_3s =   5.51 t/s
+5.25.351.898 I slot print_timing: id  0 | task 62 | n_gen =    171, tg =   4.39 t/s, tg_3s =   4.15 t/s
+5.28.418.842 I slot print_timing: id  0 | task 62 | n_gen =    188, tg =   4.47 t/s, tg_3s =   5.54 t/s
+5.30.298.562 I slot print_timing: id  0 | task 62 | prompt eval time =    3532.44 ms /    17 tokens (  207.79 ms per token,     4.81 tokens per second)
+5.30.298.567 I slot print_timing: id  0 | task 62 |        eval time =   43671.92 ms /   200 tokens (  219.46 ms per token,     4.56 tokens per second)
+5.30.298.569 I slot print_timing: id  0 | task 62 |       total time =   47204.36 ms /   217 tokens
+5.30.298.570 I slot print_timing: id  0 | task 62 |    graphs reused =        257
+5.30.298.620 I slot      release: id  0 | task 62 | stop processing: n_tokens = 216, truncated = 0
+5.30.370.617 I srv    operator(): operator(): cleaning up before exit...

@@ -739,8 +739,11 @@ int main(int argc, char ** argv) {
     // streaming GPU (stile DS4): TUTTI i layer su GPU, memoria unificata CUDA +
     // paging WDDM che sposta i pesi RAM<->VRAM al bisogno; il prefetch disco->RAM
     // alimenta il paging. La GPU esegue tutto (esperti inclusi).
-    const bool opt_gpu_streaming = env_flag_on("AGRILLA_GPU_STREAMING") ||
-                                   have_flag(argc, argv, {"--agrilla-gpu-streaming"});
+    bool opt_gpu_streaming = env_flag_on("AGRILLA_GPU_STREAMING") ||
+                             have_flag(argc, argv, {"--agrilla-gpu-streaming"});
+    // chunked decode con predizione (stile DS4): richiede memoria unificata
+    const bool opt_chunk_predict = env_flag_on("AGRILLA_CHUNK_PREDICT") ||
+                                   have_flag(argc, argv, {"--agrilla-chunk-predict"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir", "--models-dir"}, "");
@@ -753,7 +756,7 @@ int main(int argc, char ** argv) {
             t == "--no-moe-expansion" || t == "--agrilla-no-moe-expansion" ||
             t == "--agrilla-yes" || t == "--agrilla-list-models" ||
             t == "--agrilla-streaming" || t == "--agrilla-no-autostream" ||
-            t == "--agrilla-gpu-streaming") {
+            t == "--agrilla-gpu-streaming" || t == "--agrilla-chunk-predict") {
             continue;
         }
         if (t == "--agrilla-models-dir" || t == "--models-dir") { ++i; continue; }   // salta anche il valore
@@ -890,6 +893,30 @@ int main(int argc, char ** argv) {
             }
         }
     }
+    if (opt_chunk_predict && !mp.empty()) {
+#ifdef _WIN32
+        _putenv_s("GGML_CUDA_ENABLE_UNIFIED_MEMORY", "1");
+        _putenv_s("LLAMA_MOE_CHUNK_PREDICT", "1");
+        _putenv_s("LLAMA_MOE_EXPERT_PREFETCH", "0");
+#else
+        setenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY", "1", 1);
+        setenv("LLAMA_MOE_CHUNK_PREDICT", "1", 1);
+        setenv("LLAMA_MOE_EXPERT_PREFETCH", "0", 1);
+#endif
+        if (!getenv("LLAMA_MOE_CHUNK_AFTER")) {
+#ifdef _WIN32
+            _putenv_s("LLAMA_MOE_CHUNK_AFTER", "26,29,32,35,38");
+#else
+            setenv("LLAMA_MOE_CHUNK_AFTER", "26,29,32,35,38", 1);
+#endif
+        }
+        printf("[AgrillaMoE] chunk-predict: decode a blocchi stile DS4 — a ogni confine il\n"
+               "                     routing reale viene letto e i candidati del blocco successivo\n"
+               "                     vengono prefetchati in VRAM mentre il blocco corrente computa\n");
+        fflush(stdout);
+        opt_gpu_streaming = true;   // il chunk-predict usa la stessa base (UMA + fit off + ngl 99)
+        opt_streaming = false;
+    }
     if (opt_gpu_streaming && !mp.empty()) {
         // tutti i layer su GPU, niente fit automatico, memoria unificata:
         // il driver (WDDM su Windows / UMA su Linux) pagina i pesi RAM<->VRAM
@@ -913,6 +940,7 @@ int main(int argc, char ** argv) {
         std::thread(prefetch_model_loop, mp).detach();
         opt_streaming = false;   // non iniettare il placement CPU della modalita' streaming
     }
+    (void) opt_chunk_predict;
     if (opt_streaming) {
         const std::initializer_list<const char *> moe_placement = {
             "-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "-ot", "--override-tensor"};
@@ -1031,7 +1059,9 @@ int main(int argc, char ** argv) {
         }
     }
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
-    if (opt_gpu_streaming) {
+    if (opt_chunk_predict) {
+        printf("[AgrillaMoE]   streaming     : GPU + chunked predict (blocchi con lettura routing e prefetch candidati)\n");
+    } else if (opt_gpu_streaming) {
         printf("[AgrillaMoE]   streaming     : GPU (tutti i layer su GPU, pesi paginati RAM<->VRAM dal driver, -ngl 99 --fit off)\n");
     } else if (opt_streaming) {
         printf("[AgrillaMoE]   streaming     : CPU (esperti mmap da disco, attenzione/KV su GPU, prefetch layer in RAM)\n");

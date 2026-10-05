@@ -61,6 +61,8 @@ jobs:
         run: |
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DAGRILLA_LLAMA_DIR="$PWD/llama.cpp"
           cmake --build build --target agrillamoe llama-bench -j3
+          BIN=$(ls build/agrillamoe 2>/dev/null || ls build/bin/agrillamoe)
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
       - name: Scarica MoE di test (Qwen3-30B-A3B, UD-IQ1_S ~8.4GB per 14GB di RAM runner)
         run: |
           mkdir -p models
@@ -73,7 +75,7 @@ jobs:
           # llama-bench non espone i flag moe-*: uso agrillamoe (llama-server) e il timing del log
           bench_srv() {
             TAG="$1"; shift
-            ./build/bin/agrillamoe -m "$M" --host 127.0.0.1 --port 8099 --no-browser \
+            "$BIN" -m "$M" --host 127.0.0.1 --port 8099 --no-browser \
               --reasoning off -c 2048 -np 1 "$@" > "/tmp/srv-$TAG.log" 2>&1 &
             SRV=$!
             for i in $(seq 1 100); do
@@ -119,7 +121,7 @@ jobs:
       - name: Avvio con le stesse opzioni (ctx ridotto per la RAM del runner) e backtrace se crasha
         run: |
           set +e
-          ./build/bin/agrillamoe -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1 -v > /tmp/load.log 2>&1 &
+          "$BIN" -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1 -v > /tmp/load.log 2>&1 &
           SRV=$!
           OK=0
           for i in $(seq 1 60); do
@@ -135,5 +137,5 @@ jobs:
             echo "=== CRASH RIPRODOTTO su M1: ultime righe ==="
             tail -25 /tmp/load.log
             echo "=== tentativo backtrace con lldb ==="
-            lldb -b -o "run -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1" ./build/bin/agrillamoe 2>&1 | tail -40
+            lldb -b -o "run -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1" "$BIN" 2>&1 | tail -40
           fi

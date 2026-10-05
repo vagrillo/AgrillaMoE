@@ -54,18 +54,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dipendenze
-        run: |
-          brew install cmake
-          pip3 install -U huggingface_hub
+        run: brew install cmake
       - name: Clona fork
         run: git clone --depth 1 -b moe-expansion https://github.com/vagrillo/llama.cpp llama.cpp
       - name: Build (llama-bench + agrillamoe)
         run: |
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DAGRILLA_LLAMA_DIR="$PWD/llama.cpp"
           cmake --build build --target agrillamoe llama-bench -j3
-      - name: Scarica MoE di test (Qwen3-30B-A3B, UD-IQ1_S ~8GB per 14GB di RAM runner)
+      - name: Scarica MoE di test (Qwen3-30B-A3B, UD-IQ1_S ~8.4GB per 14GB di RAM runner)
         run: |
-          hf download unsloth/Qwen3-30B-A3B-GGUF Qwen3-30B-A3B-UD-IQ1_S.gguf --local-dir models
+          mkdir -p models
+          curl -L --fail -o models/Qwen3-30B-A3B-UD-IQ1_S.gguf "https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-UD-IQ1_S.gguf"
       - name: llama-bench — nativo vs espansione (decode e prompt)
         run: |
           M=models/Qwen3-30B-A3B-UD-IQ1_S.gguf

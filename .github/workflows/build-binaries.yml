@@ -114,6 +114,8 @@ jobs:
         run: |
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DAGRILLA_LLAMA_DIR="$PWD/llama.cpp"
           cmake --build build --target agrillamoe -j3
+          BIN=$(ls build/agrillamoe 2>/dev/null || ls build/bin/agrillamoe)
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
       - name: Scarica Qwen3.6-35B-A3B UD-IQ1_M (9.4GB)
         run: |
           mkdir -p models

@@ -183,6 +183,35 @@ uguale su tutti i backend (CUDA, Vulkan, ROCm, CPU).
   (RX 7800 XT = `gfx1101`; `gfx1100` = 7900 XTX/XT).
 
 Stato test: NVIDIA testato direttamente (CUDA e Vulkan); **AMD non testato su
+
+## macOS (Apple Silicon, backend Metal)
+
+Su Mac M1/M2/M3/M4 AgrillaMoE usa il **backend Metal** di llama.cpp: la
+MoE-expansion funziona identica (routing nel grafo, `mul_mat_id` supportato da
+Metal) e la **memoria unificata** semplifica tutto — il "budget" è la RAM
+totale, la modalità streaming serve raramente:
+
+| RAM Mac | quant consigliato |
+|---|---|
+| 16 GB | UD-IQ2_M / UD-Q2_K_XL |
+| 24 GB | UD-Q4_K_XL |
+| 32 GB | UD-Q6_K_XL |
+| 48+ GB | Q8_0 per intero |
+
+Build sul Mac (serve `xcode-select --install` e `brew install cmake`):
+
+```bash
+./bootstrap-llama.sh && ./build-macos.sh    # output: dist/macos/agrillamoe
+```
+
+**Binari precompilati**: la GitHub Action `build-binaries` compila su runner
+Apple Silicon a ogni tag `v*` e allega `agrillamoe-…-macos-arm64-metal.tar.gz`
+alla release; si può lanciare anche manualmente (tab Actions → Run workflow).
+
+> Nota su **MLX**: AgrillaMoE è basato su llama.cpp/C++; il backend Metal è la
+> via nativa su Mac e ha prestazioni comparabili a MLX su GGUF. Un port
+> dell'espansione MoE su mlx-lm (Python) sarebbe un progetto separato — vedi
+> `moe-predict.md` per la parte di analisi riusabile.
 hardware nostro** — il percorso Vulkan è identico su tutte le GPU, ma
 feedback da utenti AMD (soprattutto RX 7800 XT) è benvenuto: aprite una
 issue su GitHub con GPU, driver e output di `agrillamoe --list-devices`.

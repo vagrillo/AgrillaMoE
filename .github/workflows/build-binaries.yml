@@ -74,7 +74,7 @@ jobs:
           bench_srv() {
             TAG="$1"; shift
             ./build/bin/agrillamoe -m "$M" --host 127.0.0.1 --port 8099 --no-browser \
-              --reasoning off -c 2048 -np 1 "$@" > /tmp/srv-$TAG.log 2>&1 &
+              --reasoning off -c 2048 -np 1 "$@" > "/tmp/srv-$TAG.log" 2>&1 &
             SRV=$!
             for i in $(seq 1 100); do
               sleep 3
@@ -85,7 +85,7 @@ jobs:
               -H 'Content-Type: application/json' \
               -d '{"messages":[{"role":"user","content":"Scrivi un paragrafo lungo sull universo."}],"max_tokens":64,"temperature":0}' >/dev/null
             echo "=== $TAG ==="
-            grep -E "prompt eval time|eval time" /tmp/srv-$TAG.log | tail -2
+            grep -E "prompt eval time|eval time" "/tmp/srv-$TAG.log" | tail -2
             kill $SRV 2>/dev/null
             sleep 3
           }

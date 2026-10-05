@@ -453,6 +453,11 @@ static std::string download_dir(const std::vector<std::string> & dirs) {
         std::error_code ec;
         if (fs::is_directory(d, ec)) return d;
     }
+    // la prima voce e' la cartella esplicita (--models-dir): creala e usala
+    if (!dirs.empty()) {
+        std::error_code ec;
+        if (fs::create_directories(dirs[0], ec) || fs::is_directory(dirs[0], ec)) return dirs[0];
+    }
     // crea la prima tra $HOME/models
     for (const auto & d : dirs) {
         if (d.find("models") == std::string::npos) continue;
@@ -559,6 +564,7 @@ static selection_result select_model(const std::string & extra_dir, bool assume_
     if (locals.empty()) {
         int sug = suggest_catalog_index(gi);
         printf("Nessun modello Qwen3.6-35B-A3B gia' scaricato.\n");
+        printf("Cartella di download: %s (cambiala con --models-dir <percorso>)\n", download_dir(dirs).c_str());
         printf("Quant disponibili su %s:\n\n", AGRILLA_HF_REPO);
         for (size_t i = 0; i < k_catalog.size(); ++i) {
             const auto & q = k_catalog[i];
@@ -576,7 +582,7 @@ static selection_result select_model(const std::string & extra_dir, bool assume_
                    "Consigliato per la tua GPU: %s (%s, ~%.1f GB).\n"
                    "Avvia in un terminale interattivo, oppure scaricalo con:\n"
                    "  hf download %s \"%s\" --local-dir <dir>\n"
-                   "e riavvia, oppure passa -m <percorso/*.gguf>.\n",
+                   "e riavvia, oppure passa -m <percorso/*.gguf> o --models-dir <cartella>.\n",
                    q.label, q.file, q.gb, AGRILLA_HF_REPO, q.file);
             res.cancelled = false;   // errore, non annullamento utente: exit code 1
             return res;
@@ -732,7 +738,7 @@ int main(int argc, char ** argv) {
                                    have_flag(argc, argv, {"--agrilla-no-autostream"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
-    std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir"}, "");
+    std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir", "--models-dir"}, "");
     bool list_only        = have_flag(argc, argv, {"--agrilla-list-models"});
 
     std::vector<std::string> clean;
@@ -744,7 +750,7 @@ int main(int argc, char ** argv) {
             t == "--agrilla-streaming" || t == "--agrilla-no-autostream") {
             continue;
         }
-        if (t == "--agrilla-models-dir") { ++i; continue; }   // salta anche il valore
+        if (t == "--agrilla-models-dir" || t == "--models-dir") { ++i; continue; }   // salta anche il valore
         clean.push_back(t);
     }
 
@@ -772,7 +778,30 @@ int main(int argc, char ** argv) {
 
     // ---- modello: -m vince; altrimenti selezione interattiva ----
     std::string selected_model;
-    if (!have_flag(argc, argv, {"-m", "--model"})) {
+    bool model_flag_removed = false;
+    {
+        // guardia: "-m" senza percorso (es. "-m -c 128000") prendeva il flag
+        // successivo come modello; un file inesistente arrivava fino al server
+        std::string m_val = get_flag_value(argc, argv, {"-m", "--model"}, "");
+        std::error_code ec;
+        if (!m_val.empty() && m_val[0] == '-') {
+            printf("[AgrillaMoE] attenzione: -m senza percorso valido (trovato '%s'): apro il menu di selezione\n", m_val.c_str());
+            fflush(stdout);
+            std::vector<std::string> fixed;
+            for (size_t i = 0; i < clean.size(); ++i) {
+                const std::string & t = clean[i];
+                if (t == "-m" || t == "--model") { ++i; continue; }
+                if (t.rfind("--model=", 0) == 0 || t.rfind("-m=", 0) == 0) continue;
+                fixed.push_back(t);
+            }
+            clean = fixed;
+            model_flag_removed = true;
+        } else if (!m_val.empty() && !fs::exists(m_val, ec)) {
+            printf("[AgrillaMoE] ERRORE: modello non trovato: %s\n", m_val.c_str());
+            return 1;
+        }
+    }
+    if (!have_flag(argc, argv, {"-m", "--model"}) || model_flag_removed) {
         selection_result sel = select_model(extra_dir, opt_assume_yes);
         if (sel.cancelled || sel.path.empty()) {
             printf("[AgrillaMoE] nessun modello selezionato, esco.\n");

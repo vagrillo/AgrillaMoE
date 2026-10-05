@@ -102,4 +102,32 @@ MOE_N_PROMPTS=200 MOE_MAX_TOKENS=512 bash moe-predict-run.sh
 # output: run.jsonl, moe-report.txt, predictions.json
 ```
 | analisi/statistica + tabella predizioni (`moe_predict.py`) | ✅ pronto |
-| prefetch per esperto su offset GGUF | ⏭ fase 2, dopo aver misurato hit-rate sul log reale |
+| prefetch per esperto su offset GGUF | ✅ implementato e misurato (vedi sotto) |
+
+## Risultati sperimentali fase 2 (V100 16GB, Qwen3.6-35B Q8_0 34GB, unified memory)
+
+Prefetcher implementato nel fork: `LLAMA_MOE_EXPERT_PREFETCH=1` — dopo ogni
+token di decode, anticipa in VRAM (cudaMemPrefetchAsync) i byte degli esperti
+appena usati (temporale) e periodicamente i top-N per frequenza (statica, v2).
+
+| Configurazione | decode | Δ |
+|---|---|---|
+| baseline gpu-streaming | 4,18 t/s | — |
+| + prefetch temporale (v1) | 4,56 t/s | +9% |
+| + statica+temporale (v2) | 4,46 t/s | +7% |
+
+**Perché così poco, a fronte del 47% misurato?** Il segnale forte del 47% è
+**trasversale tra layer entro lo stesso token** (il router di L+1 correla con
+quello di L dello stesso passaggio). Ma llama.cpp esegue l'intero grafo del
+token in una volta: al momento del prefetch (tra due token) non conosciamo il
+routing del token successivo, e la persistenza temporale dello *stesso* layer
+tra token consecutivi è debole (~10%) — che è esattamente il +9% misurato.
+Il driver LRU di CUDA gestisce per conto suo parte del riuso (baseline 4,18
+t/s supera il limite naive senza cache di ~3,3 t/s).
+
+**La strada per sfruttare il 47%**: esecuzione a blocchi (chunked decode) —
+spezzare il grafo in 3-4 chunk, sincronizzare, leggere il routing, prefetchare
+i candidati del chunk successivo *mentre* il chunk corrente computa. È un
+cambio architetturale in llama.cpp (non solo AgrillaMoE): possibile, ma con
+costi di sincronizzazione da valutare. Il prefetcher attuale resta utile come
+infrastruttura di misura e come base per quel lavoro.

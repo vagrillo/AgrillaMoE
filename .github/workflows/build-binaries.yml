@@ -76,4 +76,7 @@ jobs:
           echo "=== espansione 20, livelli 25-39 (profilo 35B) ==="
           ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -moe-experts 20 -moe-expert-threshold 0.8 -moe-expert-layer-start 0.6 -moe-expert-layer-end 0.97 2>/dev/null || true
       - name: Report
-        run: echo "confronta le righe tg128/tg64 e pp128/pp512 nativo vs espansione: il delta e' il costo dell'espansione sui kernel Metal; baseline per il tuning di N_R0_*/N_SG_* in kernels/mul_mv.metal"
+        run: |
+          echo "Confronta le righe tg (decode) e pp (prompt) tra nativo e espansione."
+          echo "Il delta e' il costo dell'espansione sui kernel Metal."
+          echo "Baseline per il tuning di N_R0_*/N_SG_* in kernels/mul_mv.metal (ggml-metal del fork)."

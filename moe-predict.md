@@ -80,6 +80,26 @@ stampa già l'hit-rate atteso prima di scrivere una riga di C++.
 | Pezzo | Stato |
 |---|---|
 | streaming per layer (`--cpu-moe` + prefetch sequenziale + ctx compatto) | ✅ implementato in AgrillaMoE |
-| logger JSONL per-token nel fork | ⏭ prossimo passo (patch descritta in §1) |
+| logger JSONL per-token nel fork | ✅ implementato (`LLAMA_MOE_EXPERT_LOG=file.jsonl` nel fork) |
+| analisi/statistica + tabella predizioni (`moe_predict.py`) | ✅ pronto |
+| prefetch per esperto su offset GGUF | ⏭ fase 2, guidata dai numeri sotto |
+
+## Numeri reali (prima raccolta: 591 token, 5 query, IQ1_M, espansione 20)
+
+- routing sano: ~255/256 esperti distinti usati per layer
+- copertura statica top-20 per layer: **25-49%** (media ~38%)
+- predizione markoviana L→L+1 (condizionata al top-1 del layer): **31-67%**
+  (molte transizioni oltre il 50%)
+- sessioni lunghe su dataset vario (moe-predict-run.sh) e condizionamento
+  sull'INTERO insieme di esperti del layer L (non solo il top-1) sono i due
+  leve per avvicinarsi al 75%+ che servirebbe al prefetch selettivo
+
+## Sessione lunga su vast.ai (GPU grossa)
+
+```bash
+git clone https://github.com/vagrillo/AgrillaMoE && cd AgrillaMoE
+MOE_N_PROMPTS=200 MOE_MAX_TOKENS=512 bash moe-predict-run.sh
+# output: run.jsonl, moe-report.txt, predictions.json
+```
 | analisi/statistica + tabella predizioni (`moe_predict.py`) | ✅ pronto |
 | prefetch per esperto su offset GGUF | ⏭ fase 2, dopo aver misurato hit-rate sul log reale |

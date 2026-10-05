@@ -97,3 +97,43 @@ jobs:
           echo "Confronta le righe tg (decode) e pp (prompt) tra nativo e espansione."
           echo "Il delta e' il costo dell'espansione sui kernel Metal."
           echo "Baseline per il tuning di N_R0_*/N_SG_* in kernels/mul_mv.metal (ggml-metal del fork)."
+
+  macos-load-35b-repro:
+    name: Riproduzione crash Metal con Qwen3.6-35B (dk256) su M1
+    runs-on: macos-14
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dipendenze
+        run: brew install cmake
+      - name: Clona fork
+        run: git clone --depth 1 -b moe-expansion https://github.com/vagrillo/llama.cpp llama.cpp
+      - name: Build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DAGRILLA_LLAMA_DIR="$PWD/llama.cpp"
+          cmake --build build --target agrillamoe -j3
+      - name: Scarica Qwen3.6-35B-A3B UD-IQ1_M (9.4GB)
+        run: |
+          mkdir -p models
+          curl -L --fail -o models/agg.gguf "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ1_M.gguf"
+      - name: Avvio con le stesse opzioni (ctx ridotto per la RAM del runner) e backtrace se crasha
+        run: |
+          set +e
+          ./build/bin/agrillamoe -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1 -v > /tmp/load.log 2>&1 &
+          SRV=$!
+          OK=0
+          for i in $(seq 1 60); do
+            sleep 3
+            if curl -sf -m 3 http://127.0.0.1:8098/health >/dev/null 2>&1; then OK=1; break; fi
+            kill -0 $SRV 2>/dev/null || break
+          done
+          if [ "$OK" = "1" ]; then
+            echo "SERVER OK su M1: il crash non si riproduce su M1 (probabile dipendenza dal chip)"
+            curl -s -m 300 http://127.0.0.1:8098/v1/chat/completions -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"rispondi OK"}],"max_tokens":16,"temperature":0}' | head -c 300; echo
+            kill $SRV
+          else
+            echo "=== CRASH RIPRODOTTO su M1: ultime righe ==="
+            tail -25 /tmp/load.log
+            echo "=== tentativo backtrace con lldb ==="
+            lldb -b -o "run -m models/agg.gguf --host 127.0.0.1 --port 8098 --no-browser --reasoning off -c 4096 -np 1" ./build/bin/agrillamoe 2>&1 | tail -40
+          fi

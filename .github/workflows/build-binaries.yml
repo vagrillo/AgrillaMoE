@@ -46,3 +46,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" agrillamoe-*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  macos-moe-benchmark:
+    name: Benchmark MoE su M1 (baseline per tuning kernel Metal)
+    runs-on: macos-14
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dipendenze
+        run: |
+          brew install cmake
+          pip3 install -U huggingface_hub
+      - name: Clona fork
+        run: git clone --depth 1 -b moe-expansion https://github.com/vagrillo/llama.cpp llama.cpp
+      - name: Build (llama-bench + agrillamoe)
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DAGRILLA_LLAMA_DIR="$PWD/llama.cpp"
+          cmake --build build --target agrillamoe llama-bench -j3
+      - name: Scarica MoE di test (Qwen3-30B-A3B, UD-IQ1_S ~8GB per 14GB di RAM runner)
+        run: |
+          hf download unsloth/Qwen3-30B-A3B-GGUF Qwen3-30B-A3B-UD-IQ1_S.gguf --local-dir models
+      - name: llama-bench — nativo vs espansione (decode e prompt)
+        run: |
+          M=models/Qwen3-30B-A3B-UD-IQ1_S.gguf
+          echo "=== nativo (top-8) ==="
+          ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -fa auto 2>/dev/null || ./build/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2
+          echo "=== espansione 20 esperti, T 0.8, tutti i layer ==="
+          ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -moe-experts 20 -moe-expert-threshold 0.8 2>/dev/null || true
+          echo "=== espansione 20, livelli 25-39 (profilo 35B) ==="
+          ./build/bin/llama-bench -m "$M" -p 128,512 -n 64 -ngl 99 -r 2 -moe-experts 20 -moe-expert-threshold 0.8 -moe-expert-layer-start 0.6 -moe-expert-layer-end 0.97 2>/dev/null || true
+      - name: Report
+        run: echo "confronta le righe tg128/tg64 e pp128/pp512 nativo vs espansione: il delta e' il costo dell'espansione sui kernel Metal; baseline per il tuning di N_R0_*/N_SG_* in kernels/mul_mv.metal"

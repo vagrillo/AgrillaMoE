@@ -736,6 +736,11 @@ int main(int argc, char ** argv) {
                                 have_flag(argc, argv, {"--agrilla-streaming"});
     const bool opt_no_autostream = env_flag_on("AGRILLA_NO_AUTOSTREAM") ||
                                    have_flag(argc, argv, {"--agrilla-no-autostream"});
+    // streaming GPU (stile DS4): TUTTI i layer su GPU, memoria unificata CUDA +
+    // paging WDDM che sposta i pesi RAM<->VRAM al bisogno; il prefetch disco->RAM
+    // alimenta il paging. La GPU esegue tutto (esperti inclusi).
+    const bool opt_gpu_streaming = env_flag_on("AGRILLA_GPU_STREAMING") ||
+                                   have_flag(argc, argv, {"--agrilla-gpu-streaming"});
 
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir", "--models-dir"}, "");
@@ -747,7 +752,8 @@ int main(int argc, char ** argv) {
         if (t == "--no-browser" || t == "--agrilla-no-browser" ||
             t == "--no-moe-expansion" || t == "--agrilla-no-moe-expansion" ||
             t == "--agrilla-yes" || t == "--agrilla-list-models" ||
-            t == "--agrilla-streaming" || t == "--agrilla-no-autostream") {
+            t == "--agrilla-streaming" || t == "--agrilla-no-autostream" ||
+            t == "--agrilla-gpu-streaming") {
             continue;
         }
         if (t == "--agrilla-models-dir" || t == "--models-dir") { ++i; continue; }   // salta anche il valore
@@ -884,6 +890,29 @@ int main(int argc, char ** argv) {
             }
         }
     }
+    if (opt_gpu_streaming && !mp.empty()) {
+        // tutti i layer su GPU, niente fit automatico, memoria unificata:
+        // il driver (WDDM su Windows / UMA su Linux) pagina i pesi RAM<->VRAM
+        printf("[AgrillaMoE] gpu-streaming: tutti i layer su GPU con memoria unificata, il driver\n"
+               "                     pagina i pesi RAM<->VRAM al bisogno (VRAM = finestra di esecuzione);\n"
+               "                     prefetch disco->RAM attivo per alimentare il paging\n");
+        fflush(stdout);
+#ifdef _WIN32
+        _putenv_s("GGML_CUDA_ENABLE_UNIFIED_MEMORY", "1");
+#else
+        setenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY", "1", 1);
+#endif
+        const std::initializer_list<const char *> fit_names  = {"-fit", "--fit"};
+        const std::initializer_list<const char *> ngl_names2 = {"-ngl", "--gpu-layers", "--n-gpu-layers"};
+        const std::initializer_list<const char *> cmoe_names = {"-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "-ot", "--override-tensor"};
+        if (!have_flag(argc, argv, fit_names)  && !args_has(clean, fit_names))  { clean.push_back("--fit"); clean.push_back("off"); }
+        if (!have_flag(argc, argv, ngl_names2) && !args_has(clean, ngl_names2)) { clean.push_back("-ngl");  clean.push_back("99"); }
+        if (!have_flag(argc, argv, cmoe_names) && !args_has(clean, cmoe_names)) {
+            printf("[AgrillaMoE] gpu-streaming: attenzione --cpu-moe/-ot espliciti disattivano il piping su GPU\n");
+        }
+        std::thread(prefetch_model_loop, mp).detach();
+        opt_streaming = false;   // non iniettare il placement CPU della modalita' streaming
+    }
     if (opt_streaming) {
         const std::initializer_list<const char *> moe_placement = {
             "-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "-ot", "--override-tensor"};
@@ -935,11 +964,11 @@ int main(int argc, char ** argv) {
     //      non basta, quindi e' sicuro anche su GPU piccole.
     if (!have_flag(argc, argv, {"-c", "--ctx-size"}) && !args_has(clean, {"-c", "--ctx-size"})) {
         clean.push_back("-c");
-        clean.push_back(opt_streaming ? "8192" : "142768");
+        clean.push_back((opt_streaming || opt_gpu_streaming) ? "8192" : "142768");
     }
     if (!have_flag(argc, argv, {"-np", "--parallel"}) && !args_has(clean, {"-np", "--parallel"})) {
         clean.push_back("--parallel");
-        clean.push_back(opt_streaming ? "1" : "4");
+        clean.push_back((opt_streaming || opt_gpu_streaming) ? "1" : "4");
     }
 
     // ---- bind di default 127.0.0.1:8071 ----
@@ -1002,8 +1031,10 @@ int main(int argc, char ** argv) {
         }
     }
     printf("[AgrillaMoE]   endpoint      : http://%s:%s\n", bhost.c_str(), bport.c_str());
-    if (opt_streaming) {
-        printf("[AgrillaMoE]   streaming     : attivo (--cpu-moe + mmap da disco, attenzione/KV su GPU, prefetch layer in RAM)\n");
+    if (opt_gpu_streaming) {
+        printf("[AgrillaMoE]   streaming     : GPU (tutti i layer su GPU, pesi paginati RAM<->VRAM dal driver, -ngl 99 --fit off)\n");
+    } else if (opt_streaming) {
+        printf("[AgrillaMoE]   streaming     : CPU (esperti mmap da disco, attenzione/KV su GPU, prefetch layer in RAM)\n");
     }
     printf("[AgrillaMoE]   browser       : %s\n", opt_browser_on ? "apertura automatica al ready" : "disattivato");
     printf("\n");

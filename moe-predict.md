@@ -125,9 +125,32 @@ tra token consecutivi è debole (~10%) — che è esattamente il +9% misurato.
 Il driver LRU di CUDA gestisce per conto suo parte del riuso (baseline 4,18
 t/s supera il limite naive senza cache di ~3,3 t/s).
 
-**La strada per sfruttare il 47%**: esecuzione a blocchi (chunked decode) —
-spezzare il grafo in 3-4 chunk, sincronizzare, leggere il routing, prefetchare
-i candidati del chunk successivo *mentre* il chunk corrente computa. È un
-cambio architetturale in llama.cpp (non solo AgrillaMoE): possibile, ma con
-costi di sincronizzazione da valutare. Il prefetcher attuale resta utile come
-infrastruttura di misura e come base per quel lavoro.
+**Chunked decode (implementato, `--agrilla-chunk-predict`)**: eval callback
+dello sched → sync ai confini di chunk → lettura routing reale → predizione
+Markov online → prefetch candidati del chunk successivo. Misurato:
+
+| Configurazione | decode | Δ |
+|---|---|---|
+| **V100 16GB** + Q8_0: baseline | 4,18 t/s | — |
+| V100: + prefetch temporale | 4,56 t/s | +9% |
+| **RTX 2080 Ti 22GB** + Q8_0: baseline | 5,19 t/s | — |
+| 2080 Ti: + chunked budget 24 | 4,46 t/s | **−14%** |
+| 2080 Ti: + chunked budget 12, confini 26,30,34,38 | 4,88 t/s | −6% |
+
+**Verdetto sperimentale**: il chunked decode *non* paga su queste configurazioni.
+Due motivi misurati: (1) con 22GB di VRAM il 64% del modello è già residente e
+il driver LRU fa quello che la predizione statica avrebbe fatto — il margine
+residuo è il 36% di miss, e ogni byte di prefetch (incluso lo spreco
+predetto-ma-non-usato) compete con i fault su un bus PCIe x8 già saturo;
+(2) la riduzione del budget (24→12) recupera metà del danno, confermando che
+il problema è il traffico di prefetch, non la qualità della predizione.
+
+Il segnale del 47% resta reale ma è **già incassato dal driver**: la previsione
+è calibrata sulle distribuzioni di routing, e il LRU delle pagine managed
+insegue le stesse distribuzioni con granularità fine. Un'eventuale fase 3
+dovrebbe attaccare il solo scenario in cui il driver fallisce: working set per
+token >> VRAM (modelli ≥4× la VRAM) e bus non saturo — oppure il prefetch
+selettivo nell'esecuzione CPU (dove il "bus" è il canale DDR4-CPU e il
+*collocazione* degli esperti in pagine enormi contigue renderebbe il readahead
+del kernel efficace). L'infrastruttura (logger, callback, prefetcher,
+misurazioni) resta nel fork come base per quel lavoro.

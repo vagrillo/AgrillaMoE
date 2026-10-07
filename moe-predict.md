@@ -1,3 +1,136 @@
+# MoE expert prediction from activation logs
+
+Design document for **per-expert** prefetching in streaming mode
+(`--agrilla-streaming`), after antirez's DS4: weights live on disk, a RAM
+window acts as staging and VRAM holds what the current step needs. This
+document describes how to go from per-layer sequential prefetch (already
+implemented) to **early expert selection** based on statistical patterns
+accumulated across previous runs.
+
+## 1. The data: per-token, per-layer JSONL logs
+
+The moe-expansion fork already exposes a per-layer observer
+(`res->moe_expert_counts`, see the `moe_expand` branch of
+`llama-graph.cpp:build_ffn`): at each ubatch it reads back `sel_count` (how
+many experts were kept). Prediction needs more: **which** experts, per token.
+The information already exists in the graph:
+
+- `selected_experts` — `[n_used, n_tokens]` I32 tensor: candidate IDs (after
+  top-K/expansion, before the threshold cut)
+- post-expansion `weights` — `[1, n_used, n_tokens]` F32: weight>0 ⇒ expert
+  kept (the adaptive cut zeroes the others)
+
+**Implemented extension** (`llama-graph.cpp` + `llama-context.cpp`): when the
+`LLAMA_MOE_EXPERT_LOG=<file.jsonl>` environment variable is set, both tensors
+are marked as graph outputs for every expanded layer (the same
+`ggml_set_output` mechanism already used for `sel_count`) and, in the
+post-compute readback, one JSON line is written per ubatch:
+
+```json
+{"pos0":1234,"n":3,
+ "layer":{"25":[[41,907,12],[41,907,12,333],[41,12]],"26":[[...],...]}
+}
+```
+
+i.e. for every token, the list of **kept experts** (weight>ε) layer by layer,
+expansion included. Cost: ~1–2 KB/token at 16 experts over 15 layers; logging
+is off by default, with `LLAMA_MOE_EXPERT_LOG_EVERY=N` sampling to reduce
+volume.
+
+## 2. The analysis: `moe_predict.py`
+
+Already in the repo. From a `run.jsonl` it produces:
+
+1. **per-layer frequencies** and top-M coverage: how many distinct experts
+   cover 50/80/95% of activations → the size of the per-layer "hot window"
+2. **Markov transitions L→L+1** (same token): `P(e_{L+1} | e_L)` as sparse
+   counts; the conditioned top-M coverage says how much it's worth predicting
+   the next layer from the current one
+3. **persistence**: how often the expert at token t repeats the one at token
+   t−1 in the same layer
+
+Output: `predictions.json` (per layer: `top_freq`, top-M successors for
+frequent experts) directly consumable by a prefetcher.
+
+`moe_predict_set.py` goes further: **set-conditioned prediction** with a
+train/test split — given the *entire* active set of layer L, the predicted
+set for L+1 is the union of the top-k successors of each source expert,
+capped at a byte budget. This is the metric a real prefetcher would achieve.
+
+## 3. The long-session harness: `moe-predict-run.sh`
+
+One command for a vast.ai box (or any Linux GPU machine): builds AgrillaMoE
+natively, downloads the model and a HuggingFace prompt dataset (default
+`HuggingFaceH4/no_robots`), runs a long query session with the expert logger
+enabled, then produces the statistics:
+
+```bash
+git clone https://github.com/vagrillo/AgrillaMoE && cd AgrillaMoE
+MOE_N_PROMPTS=200 MOE_MAX_TOKENS=512 bash moe-predict-run.sh
+# output: run.jsonl, moe-report.txt, predictions.json
+```
+
+## 4. Phase 2: the prefetchers (implemented and measured)
+
+Two prefetchers were implemented in the fork and measured:
+
+**Temporal** (`LLAMA_MOE_EXPERT_PREFETCH=1`): after every decode token, the
+bytes of the experts just used are moved into VRAM ahead of time
+(`cudaMemPrefetchAsync`, unified memory) — betting on token-to-token routing
+persistence. v2 adds a **static hot set**: in-memory per-layer frequency
+counters, with the top-N experts per layer periodically re-prefetched
+(`LLAMA_MOE_PREFETCH_STATIC`, `LLAMA_MOE_PREFETCH_STATIC_EVERY`).
+
+**Chunked decode** (`--agrilla-chunk-predict`, DS4-style): the sched's eval
+callback observes the routing tensors at chunk boundaries → backend sync →
+real routing is read → the next chunk's candidates are predicted with the
+online Markov chain → prefetched while the current chunk computes.
+
+### Measured results
+
+**V100 16GB, Qwen3.6-35B Q8_0 (34 GB), unified memory:**
+
+| Config | decode | Δ |
+|---|---|---|
+| gpu-streaming baseline | 4.18 t/s | — |
+| + temporal prefetch (v1) | 4.56 t/s | +9% |
+| + static+temporal (v2) | 4.46 t/s | +7% |
+
+**RTX 2080 Ti 22GB, Q8_0:**
+
+| Config | decode | Δ |
+|---|---|---|
+| gpu-streaming baseline | 5.19 t/s | — |
+| + chunked, budget 24 | 4.46 t/s | **−14%** |
+| + chunked, budget 12, boundaries 26/30/34/38 | 4.88 t/s | −6% |
+
+### Experimental verdict
+
+Chunked decode **does not pay off** on these configurations, for two measured
+reasons:
+
+1. With 22GB VRAM, 64% of the model is already resident and the driver's LRU
+   does what a static prediction would have done — the residual margin is the
+   36% of misses, and every prefetched byte (including predicted-but-unused
+   waste) competes with faults on an already-saturated PCIe x8 bus
+2. Halving the budget (24→12) recovers half the damage, confirming the problem
+   is prefetch traffic, not prediction quality
+
+The 47% cross-layer signal is real but **already captured by the driver**: the
+prediction is calibrated on the same routing distributions the managed-page
+LRU tracks, at finer granularity. A possible phase 3 would target only the
+regime where the driver fails: per-token working set ≫ VRAM (models ≥4× VRAM)
+on an unsaturated bus — or selective prefetch in CPU execution, where the
+"bus" is the DDR4-CPU channel and expert placement in large contiguous pages
+would make kernel readahead effective. The infrastructure (logger, callback,
+prefetchers, measurements) stays in the fork as the base for that work.
+
+---
+
+# Versione italiana (Italian version)
+
+*Same content as the English version; the cited experiments are the same.*
+
 # Predizione degli esperti MoE dal log delle attivazioni
 
 Documento di design per il prefetch **per esperto** nella modalità streaming

@@ -1,5 +1,284 @@
 # AgrillaMoE
 
+**AgrillaMoE** is a dedicated `llama-server` build for **Qwen3.6-35B-A3B (MoE)**
+inference with the quantized GGUFs published by **Unsloth**, built on the
+[`vagrillo/llama.cpp`](https://github.com/vagrillo/llama.cpp) fork (branch
+`moe-expansion`) which implements runtime expansion of the routed experts.
+
+> 📘 **First time with a 16 GB GPU?** Read **[gpu16gbguide.md](gpu16gbguide.md)** —
+> a step-by-step guide (English + italiano) to run Qwen3.6-35B-A3B 2-bit with
+> MoE-expansion on Windows and Linux.
+
+```
+    _                    _      _  __  __  _   _ ___
+   / \   __ _  ___ _ __ | |    / \|  \/  |/ / | |_ _|
+  / _ \ / _` |/ _ \ '_ \| |   / _ \ |\/| | || | || |
+ / ___ \ (_| |  __/ | | | |  / ___ \ |  | | || | || |
+/_/   \_\__, |\___|_| |_|_| /_/   \_\_|  |_| \_/|___|
+        |___/  dedicated Qwen3.6-35B-A3B inference server
+```
+
+## What happens at startup
+
+1. **Model selection**: if a Qwen3.6-35B-A3B GGUF is already downloaded (in
+   `$AGRILLA_MODELS_DIR`, `~/models`, `./models`, `C:\models` / `/mnt/c/models`)
+   it asks which one to use; if nothing exists yet, it suggests the largest
+   Unsloth quant that fits the **detected GPU VRAM** (via `nvidia-smi`, ~92% of
+   VRAM as budget) and downloads it with the `hf` CLI after confirmation.
+   `Enter` always picks the recommendation; `d` = download another quant,
+   `x` = cancel.
+2. **Default MoE-expansion profile** — exactly the one used in the benchmarks
+   with **Qwen3.6-35B-A3B Q8_0** (GPQA-Diamond: **84.34%** with expansion vs
+   81.82% stock top-8):
+
+   | parameter | value |
+   |---|---|
+   | `--moe-experts` | 20 (model default 8) |
+   | `--moe-expert-threshold` | 0.80 (adaptive: 5..20 experts/token) |
+   | `--moe-expert-layer-start` | 25 |
+   | `--moe-expert-layer-end` | 39 (of 40 layers) |
+   | decay / renorm | 0.50 / auto (fork defaults) |
+
+   The profile is injected **only if the user passes no `--moe-*` / `--q35-*`
+   flag**; `--no-moe-expansion` (or `AGRILLA_NO_MOE_EXPANSION=1`) disables it
+   entirely.
+3. **Default endpoint `127.0.0.1:8071`** and **automatic browser open**
+   (Windows via `ShellExecute`, Linux/WSL via `wslview`) as soon as the server
+   listens. `--no-browser` or `AGRILLA_NO_BROWSER=1` disables it.
+4. Other defaults injected only when missing: `--jinja` (Qwen chat template),
+   `-c 142768` (~140k context) and `--parallel 4` (4 slots × 35840 tokens —
+   the RUN1209/Q2 benchmark configuration). On low-VRAM GPUs the fork's
+   `fit_params` automatically shrinks the context to fit model + KV cache.
+
+Every other `llama-server` flag passes straight through: context, temperature,
+concurrency and sampling are set with the standard flags, e.g. `-c 8192`,
+`--temp 0.6`, `--top-p 0.95`, `-np 8`, `--threads 8` (`--help` for the full list).
+
+### AgrillaMoE-specific flags
+
+| flag / env | effect |
+|---|---|
+| `--agrilla-list-models` | list local models + VRAM recommendation, then exit |
+| `--agrilla-models-dir DIR` | add a model search folder |
+| `--agrilla-yes` / `AGRILLA_YES=1` | auto-confirm downloads |
+| `--no-browser` / `AGRILLA_NO_BROWSER=1` | don't open the browser |
+| `--no-moe-expansion` / `AGRILLA_NO_MOE_EXPANSION=1` | stock top-8 routing |
+| `AGRILLA_MODELS_DIR` | folder list (`:` on Linux, `;` on Windows) |
+| `AGRILLA_REASONING_BUDGET` | injects `--reasoning-budget N` (e.g. `8192`; `-1` unlimited, `0` ends thinking immediately) |
+| `AGRILLA_REASONING` | injects `--reasoning on\|off\|auto` (e.g. `off` disables thinking entirely) |
+| `--agrilla-streaming` / `AGRILLA_STREAMING=1` | **streaming mode** (see below) for low-VRAM GPUs |
+| `--agrilla-gpu-streaming` / `AGRILLA_GPU_STREAMING=1` | all layers on GPU, weights paged RAM↔VRAM by the driver |
+| `--agrilla-chunk-predict` | chunked decode with routing prediction + expert prefetch (DS4-style) |
+
+### Streaming mode (`--agrilla-streaming`) — low-VRAM GPUs
+
+Inspired by antirez's DS4 project (weight streaming with a memory window):
+designed for GPUs like a 4GB GTX 1050 with a small quant (UD-IQ1_M ~9.4 GB)
+on disk. At startup AgrillaMoE configures:
+
+- `--cpu-moe`: **expert** weights stay on disk and arrive via mmap; at each
+  token `mul_mat_id` computes **only the experts chosen by the router** (the
+  statistical selection is already done by the model)
+- `-ngl 99`: attention, norms and KV cache go to the GPU (shrunk by
+  `fit_params` if VRAM is tight)
+- compact context (8192, 1 slot) unless specified otherwise
+- a **sequential prefetch thread** reads the GGUF ahead of time, pulling
+  upcoming layers into the RAM cache (the GGUF layout is sequential per
+  layer), so page faults don't wait on the SSD
+
+On Windows there's a ready-made launcher, `agrillamoe-lite.cmd` (uses
+`D:\models`). **Per-expert** prediction of upcoming layers (a predictive model
+trained on JSONL activation logs) is described in `moe-predict.md`.
+
+### Generation parameters (native llama-server flags, all pass through)
+
+- **Context/concurrency**: `-c 142768` (default), `-np 4` (default), e.g. `-c 65536 -np 2`
+- **Reasoning**: `--reasoning on|off|auto` — `off` **disables thinking**; `--reasoning-budget N` — `-1` unlimited (default), `0` ends thinking immediately, `N>0` caps thinking tokens; `--reasoning-budget-message "..."` message injected at end of thinking
+- **Temperature/sampling**: `--temp 0.6`, `--top-p 0.95`, `--top-k`, `--min-p`, `--repeat-penalty`...
+- The `[AgrillaMoE] avvio llama-server con:` summary shows the effective context, slot, reasoning state and budget.
+
+### VRAM suggestion (unsloth/Qwen3.6-35B-A3B-GGUF catalog)
+
+| VRAM | suggested quant | size |
+|---|---|---|
+| 8 GB | UD-IQ1_M | ~9.4 GB |
+| 12 GB | UD-Q2_K_XL | ~11.4 GB |
+| 16 GB | UD-Q3_K_XL | ~15.7 GB |
+| 24 GB | UD-Q5_K_M | ~24.6 GB |
+| 32 GB | UD-Q6_K_XL | ~29.7 GB |
+| 40+ GB | Q8_0 (benchmark reference) | ~34.4 GB |
+
+If no quant fits in VRAM, the smallest one (UD-IQ1_M) is proposed with partial
+CPU offload.
+
+## Build
+
+The llama.cpp source is not included: you need the `moe-expansion` fork branch
+(looked up in `../repo` or `./llama.cpp` created by `bootstrap-llama.sh`, or
+forced with `-DAGRILLA_LLAMA_DIR=...`).
+
+### Linux (statically linked, CUDA 12+)
+
+```bash
+./bootstrap-llama.sh        # first time only, if ../repo doesn't exist
+./build-linux.sh             # output: dist/linux/agrillamoe
+```
+
+Variables: `AGRILLA_CUDA_ARCH` (default `native`; e.g. `61`, `70;80;86`),
+`AGRILLA_NATIVE` (`1` default = build host's `-march=native`; `0` = portable
+CPU baseline, for redistributable binaries), `AGRILLA_BUILD_DIR`,
+`AGRILLA_JOBS`. Requirements: cmake ≥ 3.24, gcc, CUDA toolkit 12+.
+
+**Universal portable binary** (redistributable, all NVIDIA ≥8 GB from RTX 20xx
+on plus Pascal/Volta):
+
+```bash
+AGRILLA_NATIVE=0 AGRILLA_CUDA_ARCH="61;70;75;80;86;89;120" ./build-linux.sh
+```
+
+(sm_120 = RTX 50xx requires CUDA toolkit ≥ 12.8; the last listed arch is also
+included as PTX, so newer GPUs work via driver JIT.)
+
+### Windows (statically linked, CUDA 12+)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-windows.ps1   # output: dist\windows\agrillamoe.exe
+# portable multi-arch:
+powershell -ExecutionPolicy Bypass -File build-windows.ps1 -CudaArch "61;75;86;89" -Native 0 -Jobs 3
+```
+
+Parameters: `-CudaArch` (default `native`), `-Native` (default 1), `-Jobs`
+(default 4), `-BuildDir`. Requirements: Visual Studio 2019 BuildTools (VC++ +
+bundled CMake/Ninja) and CUDA toolkit 12.x. For RTX 50xx (sm_120) you need
+CUDA toolkit ≥ 12.8: `-CudaArch "61;75;86;89;120"`.
+
+**Release binary GPU coverage**: Linux = sm 61, 70, 75, 80, 86, 89, 120 + PTX
+(GTX 10xx, V100, RTX 20xx/30xx/40xx/50xx, A100); Windows = sm 61, 75, 86, 89 +
+PTX 89 (GTX 10xx, RTX 20xx/30xx/40xx; RTX 50xx via recompile with CUDA ≥ 12.8).
+
+> Note: don't run a binary compiled for one arch only on a different GPU —
+> even though PTX allows startup, kernels can crash at first generation
+> (runtime dispatch vs compile-time guards). Release binaries include real
+> cubins for all listed architectures.
+
+## AMD GPUs (e.g. Radeon RX 7800 XT) and others
+
+AgrillaMoE also runs on AMD via the **Vulkan** backend (and, recompiling, via
+**HIP/ROCm**). MoE-expansion is routing logic in the graph: it works the same
+on every backend (CUDA, Vulkan, ROCm, CPU).
+
+- **Vulkan (recommended, works out of the box)**: build with the Vulkan
+  backend alongside CUDA — one executable for both NVIDIA and AMD; on an AMD
+  machine the server uses the GPU via Vulkan (RDNA3 included, RX 7800 XT =
+  gfx1101). Only a driver with Vulkan runtime is needed (always present with
+  AMD/NVIDIA drivers). Windows build: `build-windows.ps1 -Vulkan 1 ...`;
+  Linux: `AGRILLA_VULKAN=1 ./build-linux.sh`. At startup `--device Vulkan0`
+  forces the Vulkan GPU when several are present (`--list-devices` to list).
+- **HIP/ROCm (best AMD performance, dedicated build)**: requires AMD HIP
+  SDK/ROCm; Windows: `build-windows.ps1 -Hip 1 -AmdTargets gfx1101`;
+  Linux: `AGRILLA_HIP=1 AGRILLA_AMD_TARGETS=gfx1101 ./build-linux.sh`
+  (RX 7800 XT = `gfx1101`; `gfx1100` = 7900 XTX/XT).
+
+Test status: NVIDIA tested directly (CUDA and Vulkan); **AMD not tested on our
+hardware** — the Vulkan path is identical on every GPU, but feedback from AMD
+users (especially RX 7800 XT) is welcome: open a GitHub issue with GPU, driver
+and the output of `agrillamoe --list-devices`.
+
+## macOS (Apple Silicon, Metal backend)
+
+On M1/M2/M3/M4 Macs AgrillaMoE uses llama.cpp's **Metal** backend:
+MoE-expansion works identically (routing in the graph, `mul_mat_id` supported
+by Metal) and **unified memory** simplifies everything — the "budget" is total
+RAM, streaming mode is rarely needed:
+
+| Mac RAM | suggested quant |
+|---|---|
+| 16 GB | UD-IQ2_M / UD-Q2_K_XL |
+| 24 GB | UD-Q4_K_XL |
+| 32 GB | UD-Q6_K_XL |
+| 48+ GB | Q8_0 whole |
+
+Build on the Mac (requires `xcode-select --install` and `brew install cmake`):
+
+```bash
+./bootstrap-llama.sh && ./build-macos.sh    # output: dist/macos/agrillamoe
+```
+
+**Prebuilt binaries**: the `build-binaries` GitHub Action compiles on Apple
+Silicon runners for every `v*` tag and attaches
+`agrillamoe-…-macos-arm64-metal.tar.gz` to the release; it can also be run
+manually (Actions tab → Run workflow).
+
+> Note on **MLX**: AgrillaMoE is based on llama.cpp/C++; the Metal backend is
+> the native path on Mac with performance comparable to MLX on GGUF. A port of
+> MoE-expansion to mlx-lm (Python) would be a separate project — see
+> `moe-predict.md` for the reusable analysis part.
+
+## Usage
+
+```bash
+./agrillamoe                       # interactive menu, AgrillaMoE defaults
+./agrillamoe -m ~/models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
+./agrillamoe --host 0.0.0.0 --port 9000 --no-browser
+./agrillamoe -c 65536 -np 2        # custom context/concurrency
+./agrillamoe --reasoning off       # disable thinking
+./agrillamoe --reasoning-budget 8192   # cap thinking at 8192 tokens
+./agrillamoe --temp 0.6 --top-p 0.95
+./agrillamoe --moe-experts 12 --moe-expert-threshold 0.7   # custom profile
+```
+
+API: OpenAI-compatible at `http://127.0.0.1:8071/v1` (+ web UI at the root),
+identical to `llama-server`; it also exposes the **Anthropic
+`/v1/messages`** endpoint, so **Claude Code** and OpenAI-compatible agents
+(Aider, Cline, OpenCode, Continue, Zed, Goose) connect directly — step-by-step
+instructions in [gpu16gbguide.md](gpu16gbguide.md), section 8.
+
+## Structure
+
+```
+AgrillaMoE/
+├── CMakeLists.txt        # standalone project adding the fork as a subdirectory
+├── src/main.cpp          # banner, model/VRAM selection, hf download, defaults, browser
+├── build-linux.sh        # static CUDA Linux build
+├── build-windows.ps1     # static CUDA Windows build (VS2019 BuildTools + CUDA 12)
+├── build-macos.sh        # static Metal macOS build
+├── bootstrap-llama.sh    # clones the moe-expansion fork when needed
+└── dist/                 # built binaries (not versioned)
+```
+
+## Benchmark results: HumanEval
+
+First public HumanEval measurement for Qwen3.6-35B-A3B — expansion vs stock
+routing A/B on an RTX 2080 Ti with UD-IQ4_XS 4-bit (thinking budget 4096):
+
+| Config | pass@1 | Decode |
+|---|---|---|
+| Stock top-8 | 89.63% (147/164) | 69.3 tok/s |
+| MoE-expansion 20 | **90.85%** (149/164) | 56.0 tok/s |
+
+Full details (methodology, paired analysis, caveats) in
+**[humaneval-eval.md](humaneval-eval.md)**.
+
+## Background
+
+- MoE expansion: runtime routing with more routed experts than the native
+  top-K (see `docs/moe-expansion.md` in the fork).
+- Reference benchmark (RUN1209, vast.ai V100): Qwen3.6-35B-A3B **Q8_0** with
+  `N=20 T=0.8 L25–39` → GPQA-Diamond 84.34% vs 81.82% stock (+2.5 points).
+  This is the profile AgrillaMoE injects by default.
+
+## License
+
+MIT (like llama.cpp). This project includes/modifies code from
+[llama.cpp](https://github.com/ggml-org/llama.cpp) and the
+`vagrillo/llama.cpp` fork (moe-expansion branch).
+
+---
+
+# Versione italiana (Italian version)
+
+*Contenuto identico alla versione inglese.*
+
 **AgrillaMoE** è una versione dedicata di `llama-server` specializzata
 nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da
 **Unsloth**, costruita sul fork

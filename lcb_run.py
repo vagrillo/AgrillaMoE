@@ -114,10 +114,14 @@ def main():
     ap.add_argument("--timeout", type=int, default=15, help="per-test timeout seconds")
     ap.add_argument("--limit", type=int, default=0, help="only first N problems (0=all)")
     ap.add_argument("--max-tokens", type=int, default=6144)
+    ap.add_argument("--index", type=int, default=None,
+                    help="run a single problem by index (adaptive drivers)")
     args = ap.parse_args()
 
     problems = load_problems(args.dataset)
-    if args.limit:
+    if args.index is not None:
+        problems = [problems[args.index]]
+    elif args.limit:
         problems = problems[:args.limit]
     print(f"problemi: {len(problems)} (medium+hard)", flush=True)
 
@@ -139,7 +143,8 @@ def main():
             ex = p["public_tests"][0]
             prompt += ("\n\n## Example\n\nInput:\n```\n" + ex["input"].rstrip() +
                        "\n```\nOutput:\n```\n" + ex["output"].rstrip() + "\n```")
-        rec = {"problem_id": p["problem_id"], "split": p["_split"], "title": p["title"],
+        rec = {"problem_index": args.index if args.index is not None else i,
+               "problem_id": p["problem_id"], "split": p["_split"], "title": p["title"],
                "difficulty": p["difficulty"], "ok": False, "gen_tokens": 0,
                "tests_passed": 0, "tests_total": len(p["test_cases"]), "err": ""}
         try:

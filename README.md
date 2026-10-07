@@ -247,6 +247,19 @@ AgrillaMoE/
 └── dist/                 # binari prodotti (non versionati)
 ```
 
+## Risultati benchmark: HumanEval
+
+Prima misura pubblica di HumanEval per Qwen3.6-35B-A3B — A/B expansion vs
+stock routing su RTX 2080 Ti con UD-IQ4_XS 4-bit (thinking budget 4096):
+
+| Config | pass@1 | Decode |
+|---|---|---|
+| Stock top-8 | 89,63% (147/164) | 69,3 tok/s |
+| MoE-expansion 20 | **90,85%** (149/164) | 56,0 tok/s |
+
+Dettagli completi (metodologia, analisi appaiata, caveats) in
+**[humaneval-eval.md](humaneval-eval.md)**.
+
 ## Contesto
 
 - Espansione MoE: routing runtime con più esperti routed del top-K nativo

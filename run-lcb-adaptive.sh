@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-lcb-adaptive.sh v2 — LiveCodeBench-v6-Plus (91 problemi) su RTX 3090 24GB
 #
-# v2 (richiesta utente): coda combinazioni riprioritizzata —
+# v3 (richiesta utente): coda riprioritizzata — ultimo layer 30-39 (ultimi 10) con T=0.9 per primo;
 #   1. 20 esperti T=0.9 layer 20-39
 #   2. 20 esperti T=0.9 layer 10-39
 #   poi le altre non ancora provate. Problemi 0-1 (falliti con i default) sono
@@ -21,10 +21,9 @@ BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 24576 -np 1 
 DEFAULT_MOE=(--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39)
 
 COMBOS=(
-  "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 20 --moe-expert-layer-end 39"
-  "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 10 --moe-expert-layer-end 39"
-  "--moe-experts 20 --moe-expert-threshold 0.6 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
+  "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 30 --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
+  "--moe-experts 20 --moe-expert-threshold 0.6 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 0  --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 20 --moe-expert-layer-end 39"
   "--moe-experts 16 --moe-expert-threshold 0.7 --moe-expert-layer-start 20 --moe-expert-layer-end 39"

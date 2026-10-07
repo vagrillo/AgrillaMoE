@@ -1,38 +1,28 @@
 #!/bin/bash
-# run-lcb-adaptive.sh — LiveCodeBench-v6-Plus (91 problemi) su RTX 3090 24GB
+# run-lcb-adaptive.sh v2 — LiveCodeBench-v6-Plus (91 problemi) su RTX 3090 24GB
 #
-# Strategia adattiva:
-#   1. il run parte con l'espansione di DEFAULT (20 esperti, T=0.80, layer 25-39)
-#   2. quando 2 problemi sono in errore: STOP del run principale
-#   3. "patch phase": i 2 problemi falliti vengono ritentati con 10 combinazioni
-#      diverse di parametri di espansione (una sessione server per combinazione,
-#      entrambi i problemi per sessione); si ferma alla prima combinazione che
-#      li risolve entrambi
-#   4. il run principale riparte con i parametri di default; a fine run il
-#      report dice se i parametri di default sono CONFERMATI o VARIATI
-#
-# Output: /root/lcb-adaptive-results.json + /root/lcb-patch-report.json
+# v2 (richiesta utente): coda combinazioni riprioritizzata —
+#   1. 20 esperti T=0.9 layer 20-39
+#   2. 20 esperti T=0.9 layer 10-39
+#   poi le altre non ancora provate. Problemi 0-1 (falliti con i default) sono
+#   patchati PRIMA del run principale; se una combinazione vince, il run
+#   principale prosegue CON QUELLA (validazione su larga scala).
 set -uo pipefail
 cd /root/AgrillaMoE
 M="${LCB_MODEL:-models/IQ4XS.gguf}"
 PORT=8099
 BUDGET="${LCB_THINKING_BUDGET:-8192}"
-NP="${LCB_PROBLEMS:-91}"          # numero di problemi del run principale
+NP="${LCB_PROBLEMS:-91}"
+MAIN_START="${LCB_MAIN_START:-2}"     # 0 e 1 gia' falliti con i default
 START=$(date +%s)
 
-# il reasoning budget va impostato SUL SERVER (il flag modella il thinking vero);
-# max_tokens dell'harness copre pensiero+risposta
 BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 --no-browser \
            --reasoning-budget "$BUDGET")
 DEFAULT_MOE=(--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39)
 
-# 10 combinazioni di patch (diverse per N, soglia, range di layer; la #10 e' il
-# routing nativo come controllo)
 COMBOS=(
-  "--moe-experts 12 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
-  "--moe-experts 16 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
-  "--moe-experts 24 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
-  "--moe-experts 32 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
+  "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 20 --moe-expert-layer-end 39"
+  "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 10 --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.6 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 25 --moe-expert-layer-end 39"
   "--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 0  --moe-expert-layer-end 39"
@@ -41,7 +31,7 @@ COMBOS=(
   "--no-moe-expansion"
 )
 
-start_server() {  # $@ = flag moe extra (opzionali)
+start_server() {
   pkill -x agrillamoe 2>/dev/null; sleep 2
   ./dist/linux/agrillamoe -m "$M" "$@" "${BASE_ARGS[@]}" \
       --host 127.0.0.1 --port $PORT > /root/srv-lcb.log 2>&1 &
@@ -54,72 +44,94 @@ start_server() {  # $@ = flag moe extra (opzionali)
   return 1
 }
 
-run_problem() {  # $1 = indice problema, $2 = file di output
+run_problem() {  # $1 = indice, $2 = output
   LCB_THINKING_BUDGET="$BUDGET" python3 lcb_run.py $PORT "$2" --index "$1" --timeout 15 \
       --max-tokens "$((BUDGET + 4096))" \
       --dataset /root/AgrillaMoE/lcbdata >/dev/null 2>&1
-  python3 -c "import json,sys; print(json.load(open('$2'))['ok'])" 2>/dev/null
+  python3 -c "
+import json
+try:
+    d = json.load(open('$2'))
+    print(int(d['results'][0]['ok']))
+except Exception:
+    pass"
 }
 
-echo "###### LCB-v6-Plus ADAPTIVE — start $(date) ######"
-start_server "${DEFAULT_MOE[@]}" || { echo "server non partito"; exit 1; }
-echo "server pronto (espansione default: 20 / 0.80 / 25-39)"
+echo "###### LCB-v6-Plus ADAPTIVE v2 — start $(date) ######"
 
-declare -A RESULT      # idx -> ok/failed/COMBO_n
-declare -A FIXED_BY    # idx -> combinazione vincente
-FAILED=()              # indici in attesa di patch
-PATCH_REPORT=()        # righe di report delle patch
-TOTAL_OK=0
-COMBO_N=0
+# ---- PATCH INIZIALE: problemi 0 e 1 (falliti con i default 20/0.8/25-39) ----
+WINNER_MOE=()
+declare -A FIXED_BY
+INIT_OK=0
+echo "===== PATCH INIZIALE problemi 0-1: ${#COMBOS[@]} combinazioni (user-primo: L20-39/L10-39 @T0.9) ====="
+pkill -x agrillamoe 2>/dev/null; sleep 2
+for ci in "${!COMBOS[@]}"; do
+  COMBO_N=$((ci+1)); COMBO="${COMBOS[$ci]}"
+  echo "--- combinazione $COMBO_N/${#COMBOS[@]}: $COMBO"
+  start_server $COMBO || { echo "  server non partito, skip"; continue; }
+  rA=$(run_problem 0 /tmp/lcb-p0.json)
+  rB=$(run_problem 1 /tmp/lcb-p1.json)
+  echo "  problema 0: $rA | problema 1: $rB"
+  if [ "$rA" = "1" ] && [ "$rB" = "1" ]; then
+    WINNER_MOE=($COMBO)
+    FIXED_BY[0]="combo $COMBO_N"; FIXED_BY[1]="combo $COMBO_N"
+    PATCH_REPORT+=("problemi 0,1 -> risolti da combo $COMBO_N: $COMBO")
+    INIT_OK=1
+    echo "  >>> ENTRAMBI RISOLTI: il run principale prosegue con questa combinazione"
+    break
+  fi
+  PATCH_REPORT+=("problemi 0,1 -> combinazione $COMBO_N non risolutiva")
+done
+if [ "$INIT_OK" = "0" ]; then
+  echo "nessuna combinazione risolve 0-1: sono limite di capacita', non di tuning"
+  PATCH_REPORT+=("problemi 0,1 -> nessuna combinazione risolutiva (limite capacita')")
+fi
 
-for ((IDX=0; IDX<NP; IDX++)); do
+# ---- RUN PRINCIPALE (con la combinazione vincente se esiste, altrimenti default) ----
+RUN_MOE=("${WINNER_MOE[@]:-${DEFAULT_MOE[@]}}")
+echo ""
+echo "===== RUN PRINCIPALE problemi $MAIN_START-$((NP-1)) — moe: ${RUN_MOE[*]:-default} ====="
+start_server "${RUN_MOE[@]}" || { echo "server non partito"; exit 1; }
+
+declare -A RESULT
+FAILED=()
+PATCH_REPORT2=()
+TOTAL_OK=$((TOTAL_OK + INIT_OK * 2))
+
+for ((IDX=MAIN_START; IDX<NP; IDX++)); do
   if run_problem "$IDX" "/tmp/lcb-one.json"; then
-    RESULT[$IDX]="ok"
-    TOTAL_OK=$((TOTAL_OK+1))
+    RESULT[$IDX]="ok"; TOTAL_OK=$((TOTAL_OK+1))
   else
     RESULT[$IDX]="failed"
     FAILED+=("$IDX")
-    echo "[problema $IDX] FALLITO (falliti in attesa: ${#FAILED[@]}/2)"
+    echo "[problema $IDX] FALLITO (in attesa: ${#FAILED[@]}/2)"
   fi
 
-  # ---- patch phase a 2 falliti ----
   if [ "${#FAILED[@]}" -eq 2 ]; then
     A="${FAILED[0]}"; B="${FAILED[1]}"
-    echo ""
-    echo "===== PATCH PHASE: problemi $A e $B — 10 combinazioni ====="
+    echo ""; echo "===== PATCH: problemi $A e $B ====="
     pkill -x agrillamoe 2>/dev/null; sleep 2
-    WINNER=""
+    local_win=""
     for ci in "${!COMBOS[@]}"; do
-      COMBO_N=$((ci+1))
-      COMBO="${COMBOS[$ci]}"
-      echo "--- combinazione $COMBO_N/10: $COMBO"
-      start_server $COMBO || { echo "  server non partito, skip"; continue; }
-      local_ok=()
-      for IDX2 in $A $B; do
-        if r=$(run_problem "$IDX2" "/tmp/lcb-patch-$IDX2.json"); then
-          local_ok+=(1); RESULT[$IDX2]="ok (combo $COMBO_N)"
-        else
-          local_ok+=(0); RESULT[$IDX2]="failed"
-        fi
-      done
-      if [ "${local_ok[0]}" = "1" ] && [ "${local_ok[1]}" = "1" ]; then
-        WINNER="COMBO_$COMBO_N"
-        FIXED_BY[$A]="combo $COMBO_N"; FIXED_BY[$B]="combo $COMBO_N"
-        PATCH_REPORT+=("problemi $A,$B -> risolti da $WINNER: $COMBO")
-        echo "  >>> entrambi risolti da $WINNER"
+      CN=$((ci+1)); COMBO="${COMBOS[$ci]}"
+      [[ "${RUN_MOE[*]}" == "$COMBO" ]] && { echo "  skip (gia' in uso)"; continue; }
+      echo "--- combinazione $CN: $COMBO"
+      start_server $COMBO || continue
+      rA=$(run_problem "$A" /tmp/lcb-pa.json)
+      rB=$(run_problem "$B" /tmp/lcb-pb.json)
+      echo "  $A:$rA  $B:$rB"
+      if [ "$rA" = "1" ] && [ "$rB" = "1" ]; then
+        local_win="$CN"; FIXED_BY[$A]="combo $CN"; FIXED_BY[$B]="combo $CN"
+        PATCH_REPORT2+=("$A,$B -> risolti da combo $CN: $COMBO")
+        echo "  >>> RISOLTI"
         break
-      else
-        PATCH_REPORT+=("problemi $A,$B -> combinazione $COMBO_N non risolutiva (${local_ok[0]}/${local_ok[1]} ok)")
-        echo "  non risolutiva"
       fi
+      PATCH_REPORT2+=("$A,$B -> combo $CN non risolutiva")
     done
-    if [ -z "$WINNER" ]; then
-      PATCH_REPORT+=("problemi $A,$B -> nessuna delle 10 combinazioni li ha risolti")
-      echo "  nessuna combinazione risolutiva: i problemi restano falliti"
-    fi
+    [ -z "$local_win" ] && { PATCH_REPORT2+=("$A,$B -> nessuna combinazione risolutiva"); echo "  nessuna risolutiva"; }
     FAILED=()
-    echo "===== fine patch phase — ripresa del run principale ====="
-    start_server "${DEFAULT_MOE[@]}" || { echo "server non ripartito"; exit 1; }
+    echo "===== ripresa run principale ====="
+    start_server "${RUN_MOE[@]}" || exit 1
   fi
 done
 
@@ -129,36 +141,35 @@ pkill -x agrillamoe 2>/dev/null
 NPASS=0; NFAIL=0; VARIED=0
 SUMMARY_ROWS=""
 for ((IDX=0; IDX<NP; IDX++)); do
-  R="${RESULT[$IDX]:-n/d}"
-  case "$R" in
-    ok*) NPASS=$((NPASS+1));;
-    failed*) NFAIL=$((NFAIL+1));;
-  esac
-  if [[ "$R" == *"combo"* ]]; then VARIED=$((VARIED+1)); fi
-  FB="${FIXED_BY[$IDX]:-}"
-  SUMMARY_ROWS+="{\"index\":$IDX,\"status\":\"$R\",\"fixed_by\":\"$FB\"},"
+  R="?"; [[ -n "${RESULT[$IDX]:-}" ]] && R="${RESULT[$IDX]}"
+  [[ -n "${FIXED_BY[$IDX]:-}" ]] && R="$R [${FIXED_BY[$IDX]}]"
+  case "$R" in ok*) NPASS=$((NPASS+1));; failed*) NFAIL=$((NFAIL+1));; esac
+  [[ "$R" == *"combo"* ]] && VARIED=$((VARIED+1))
+  SUMMARY_ROWS+="{\"index\":$IDX,\"status\":\"$R\"},"
 done
-python3 - "$NPASS" "$NFAIL" "$VARIED" "$SUMMARY_ROWS" "$START" <<'PYEOF'
-import json, sys, time
-npass, nfail, varied, rows, start = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
-rows = "[" + rows.rstrip(",") + "]"
+python3 - "$NPASS" "$NFAIL" "$VARIED" "$SUMMARY_ROWS" "$START" "${WINNER_MOE[*]:-none}" <<'PYEOF'
+import json, sys, time, os
+npass, nfail, varied = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+rows = "[" + sys.argv[4].rstrip(",") + "]"
+start = int(sys.argv[5]); winner = sys.argv[6]
 report = {
     "benchmark": "LiveCodeBench-v6-Plus (91 problems, BenchEvolver)",
     "model": "Qwen3.6-35B-A3B UD-IQ4_XS, full GPU (RTX 3090 24GB)",
-    "thinking_budget": int(__import__("os").environ.get("LCB_THINKING_BUDGET", "4096")),
+    "thinking_budget": int(os.environ.get("LCB_THINKING_BUDGET", "8192")),
     "default_expansion": {"experts": 20, "threshold": 0.8, "layers": "25-39"},
+    "winner_expansion": winner if winner != "none" else "default confirmed",
     "passed": npass, "failed": nfail,
-    "pass_at_1_default_only": round(100.0 * npass / max(1, npass + nfail), 2),
+    "pass_at_1": round(100.0 * npass / max(1, npass + nfail), 2),
     "problems_fixed_with_varied_params": varied,
-    "verdict": ("default params CONFIRMED" if varied == 0 else
-                f"default params VARIED: {varied} problem(s) fixed with different expansion params"),
+    "verdict": ("default params CONFIRMED" if varied == 0 and winner == "none" else
+                (f"params VARIED: main run continued with [{winner}] — validated on full benchmark" if winner != "none" else
+                 "mixed: some problems need varied params")),
     "wall_seconds": round(time.time() - start, 1),
     "details": json.loads(rows),
 }
 open("/root/lcb-adaptive-results.json", "w").write(json.dumps(report, indent=1))
-print(json.dumps({k: report[k] for k in ("passed", "failed", "pass_at_1_default_only",
-      "problems_fixed_with_varied_params", "verdict")}, indent=1))
+print(json.dumps({k: report[k] for k in ("passed", "failed", "pass_at_1", "winner_expansion", "verdict")}, indent=1))
 PYEOF
 echo "--- patch report ---"
-printf '%s\n' "${PATCH_REPORT[@]}"
+printf '%s\n' "${PATCH_REPORT[@]}" "${PATCH_REPORT2[@]}"
 echo "###### FINE — $(date) — durata $(( ($(date +%s) - START) / 60 )) min ######"

@@ -61,16 +61,37 @@ Rolling pass-rate at matching progress points stayed expansion-ahead by
 
 ## Reproduce
 
+**Expansion arm (the headline result)** — AgrillaMoE auto-injects the expansion
+profile (20 routed experts, adaptive threshold 0.80, layers 25–39) whenever no
+`--moe-*` flag is passed, on a MoE model with native top-K < 20 and 40 layers:
+
 ```bash
 git clone https://github.com/vagrillo/AgrillaMoE && cd AgrillaMoE
 git clone --depth 1 -b moe-expansion https://github.com/vagrillo/llama.cpp llama.cpp
-# download Qwen3.6-35B-A3B-UD-IQ4_XS.gguf, then:
+./bootstrap-llama.sh   # not needed if llama.cpp is already cloned next to the repo
+# build once: AGRILLA_JOBS=$(nproc) ./build-linux.sh
+# download Qwen3.6-35B-A3B-UD-IQ4_XS.gguf (unsloth/Qwen3.6-35B-A3B-GGUF), then:
+./dist/linux/agrillamoe -m model.gguf --reasoning-budget 4096 \
+    --flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 \
+    --host 127.0.0.1 --port 8097 --no-browser
+# effective expansion flags injected at startup (verify in the log):
+#   --moe-experts 20 --moe-expert-threshold 0.8
+#   --moe-expert-layer-start 25 --moe-expert-layer-end 39
+python3 humaneval_run.py 8097 out-exp20.json 164 6144
+```
+
+**Stock arm (A/B control)** — the same command plus `--no-moe-expansion`:
+
+```bash
 ./dist/linux/agrillamoe -m model.gguf --no-moe-expansion --reasoning-budget 4096 \
     --flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 \
     --host 127.0.0.1 --port 8097 --no-browser
-python3 humaneval_run.py 8097 out.json 164 6144
-# then rerun without --no-moe-expansion for the expansion arm
+python3 humaneval_run.py 8097 out-noexp.json 164 6144
 ```
+
+Everything else is identical between the two arms: thinking budget 4096, KV
+cache q8_0, ctx 16384, temp 0, single greedy sample — the only variable is the
+routing.
 
 Raw per-problem results (including full completions and reasoning traces for
 the expansion arm) are in the repository history of the author's local copy —

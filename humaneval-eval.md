@@ -47,7 +47,7 @@ Rolling pass-rate at matching progress points stayed expansion-ahead by
 - **No official HumanEval number exists for Qwen3.6-35B-A3B** (the model card
   reports agentic-coding benchmarks — Terminal-Bench, MCPMark — but not
   HumanEval). To our knowledge this is the first public HumanEval measurement
-  for this model.
+  for this quantized model.
 - These are **original HumanEval tests**, not HumanEval+/EvalPlus — do not
   compare 1:1 with the EvalPlus leaderboard (the + variant is stricter).
 - **pass@1, single greedy sample**: leaderboard numbers sometimes average
@@ -56,7 +56,7 @@ Rolling pass-rate at matching progress points stayed expansion-ahead by
 - Prompting: chat template with an instruction to output the completed function
   in a single Python code block; extraction takes the first fenced block.
 - For reference points in the same ballpark: Qwen2.5-Coder-32B-Instruct
-  (coder-specialized) reports 92.7% on HumanEval; generalist MoE models in the
+  (coder-specialized) Full precision reports 92.7% on HumanEval; generalist MoE models in the
   30B class typically land 80–88%.
 
 ## Reproduce

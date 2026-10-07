@@ -16,7 +16,7 @@ NP="${LCB_PROBLEMS:-91}"
 MAIN_START="${LCB_MAIN_START:-2}"     # 0 e 1 gia' falliti con i default
 START=$(date +%s)
 
-BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 --no-browser \
+BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 24576 -np 1 --no-browser \
            --reasoning-budget "$BUDGET")
 DEFAULT_MOE=(--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39)
 
@@ -46,7 +46,7 @@ start_server() {
 
 run_problem() {  # $1 = indice, $2 = output
   LCB_THINKING_BUDGET="$BUDGET" python3 lcb_run.py $PORT "$2" --index "$1" --timeout 15 \
-      --max-tokens "$((BUDGET + 4096))" \
+      --max-tokens "$((BUDGET + 8192))" \
       --dataset /root/AgrillaMoE/lcbdata >/dev/null 2>&1
   python3 -c "
 import json

@@ -60,8 +60,14 @@ def chat(port, prompt, max_tokens):
 
 def extract_code(text):
     import re
+    # blocco completo; se la generazione e' stata troncata il fence di chiusura
+    # manca: stripping della sola riga di apertura invece del fallback sul grezzo
     m = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.S)
-    code = m.group(1) if m else text
+    if m:
+        code = m.group(1)
+    else:
+        m2 = re.search(r"```(?:python|py)?\s*\n(.*)", text, re.S)
+        code = m2.group(1) if m2 else text
     return code.rstrip() + "\n"
 
 

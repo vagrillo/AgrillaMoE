@@ -10,7 +10,11 @@ START=$(date +%s)
 step_done() { echo "[$(( $(date +%s) - START ))s] $1"; }
 
 # ---- 0) repo AgrillaMoE (veloce, foreground) ----
-[ -d /root/AgrillaMoE ] || git clone -q https://github.com/vagrillo/AgrillaMoE /root/AgrillaMoE
+[ -f /root/AgrillaMoE/build-linux.sh ] || {
+    git clone -q https://github.com/vagrillo/AgrillaMoE /root/AgrillaMoE \
+        || { rm -rf /root/AgrillaMoE; git clone -q https://github.com/vagrillo/AgrillaMoE /root/AgrillaMoE; }
+}
+[ -f /root/AgrillaMoE/build-linux.sh ] || { echo "FATAL: clone AgrillaMoE fallito"; exit 1; }
 cd /root/AgrillaMoE
 git pull -q origin main 2>/dev/null || true
 git clone -q --depth 1 -b moe-expansion https://github.com/vagrillo/llama.cpp llama.cpp 2>/dev/null || \
@@ -38,12 +42,13 @@ MODEL_PID=$!
 
 ( # C: dataset LCB-Plus + selftest del judge (solo CPU)
   cd /root/AgrillaMoE
+  mkdir -p /root/AgrillaMoE/lcbdata
   for s in medium hard; do
-      curl -sL --fail -o "lcb-plus-$s.jsonl" \
+      curl -sL --fail -o "/root/AgrillaMoE/lcbdata/$s.jsonl" \
           "https://huggingface.co/datasets/BenchEvolver/livecodebench-plus/resolve/main/$s.jsonl"
   done
   LCB_JUDGE_SELFTEST=1 python3 lcb_run.py 0 /root/lcb-selftest.json \
-      --dataset "/root/AgrillaMoE/lcb-plus-{split}.jsonl" --timeout 15 --limit 5 \
+      --dataset /root/AgrillaMoE/lcbdata --timeout 15 --limit 5 \
       > /root/setup-selftest.log 2>&1 \
       && echo "[judge] OK ($(grep 'judge selftest' /root/setup-selftest.log))" \
       || { echo "[judge] FALLITO"; tail -3 /root/setup-selftest.log; }

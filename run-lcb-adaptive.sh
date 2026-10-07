@@ -52,7 +52,8 @@ start_server() {  # $@ = flag moe extra (opzionali)
 }
 
 run_problem() {  # $1 = indice problema, $2 = file di output
-  LCB_THINKING_BUDGET="$BUDGET" python3 lcb_run.py $PORT "$2" --index "$1" --timeout 15 >/dev/null 2>&1
+  LCB_THINKING_BUDGET="$BUDGET" python3 lcb_run.py $PORT "$2" --index "$1" --timeout 15 \
+      --dataset /root/AgrillaMoE/lcbdata >/dev/null 2>&1
   python3 -c "import json,sys; print(json.load(open('$2'))['ok'])" 2>/dev/null
 }
 

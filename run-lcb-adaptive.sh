@@ -16,11 +16,14 @@ set -uo pipefail
 cd /root/AgrillaMoE
 M="${LCB_MODEL:-models/IQ4XS.gguf}"
 PORT=8099
-BUDGET="${LCB_THINKING_BUDGET:-4096}"
+BUDGET="${LCB_THINKING_BUDGET:-8192}"
 NP="${LCB_PROBLEMS:-91}"          # numero di problemi del run principale
 START=$(date +%s)
 
-BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 --no-browser)
+# il reasoning budget va impostato SUL SERVER (il flag modella il thinking vero);
+# max_tokens dell'harness copre pensiero+risposta
+BASE_ARGS=(--flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 -c 16384 -np 1 --no-browser \
+           --reasoning-budget "$BUDGET")
 DEFAULT_MOE=(--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39)
 
 # 10 combinazioni di patch (diverse per N, soglia, range di layer; la #10 e' il
@@ -53,6 +56,7 @@ start_server() {  # $@ = flag moe extra (opzionali)
 
 run_problem() {  # $1 = indice problema, $2 = file di output
   LCB_THINKING_BUDGET="$BUDGET" python3 lcb_run.py $PORT "$2" --index "$1" --timeout 15 \
+      --max-tokens "$((BUDGET + 4096))" \
       --dataset /root/AgrillaMoE/lcbdata >/dev/null 2>&1
   python3 -c "import json,sys; print(json.load(open('$2'))['ok'])" 2>/dev/null
 }

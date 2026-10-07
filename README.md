@@ -275,9 +275,7 @@ MIT (like llama.cpp). This project includes/modifies code from
 
 ---
 
-# Versione italiana (Italian version)
-
-*Contenuto identico alla versione inglese.*
+# Versione italiana 
 
 **AgrillaMoE** è una versione dedicata di `llama-server` specializzata
 nell'inferenza di **Qwen3.6-35B-A3B (MoE)** con i GGUF quantizzati pubblicati da

@@ -59,6 +59,7 @@ def health(port):
 
 
 def start_server(model, flags, port, log):
+    kill_servers()
     model_abs = model if os.path.isabs(model) else os.path.join(BENCH_ROOT, model)
     cmd = [BIN, "-m", model_abs] + flags + [
         "--flash-attn", "on", "-ctk", "q8_0", "-ctv", "q8_0",
@@ -76,12 +77,18 @@ def start_server(model, flags, port, log):
     return None
 
 
+def kill_servers():
+    subprocess.run(["pkill", "-9", "-x", "agrillamoe"], capture_output=True)
+    time.sleep(3)
+
+
 def stop_server(proc):
     try:
         proc.terminate()
         proc.wait(timeout=20)
     except Exception:
         pass
+    kill_servers()
 
 
 def extract_code(text):

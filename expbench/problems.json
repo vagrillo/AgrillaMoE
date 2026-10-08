@@ -1,0 +1,85 @@
+{
+  "problems": [
+    {
+      "id": "p1",
+      "nature": "dynamic programming on sequences",
+      "title": "Cheapest pillar route",
+      "statement": "You are given an array `heights` of `n` integers (the heights of consecutive pillars) and an integer `k` (max jump reach). You start on pillar 0 and must reach pillar n-1. From pillar i you may jump to any pillar j with i < j <= i + k. The cost of a jump from i to j is abs(heights[i] - heights[j]). Return the minimum total cost over the whole trip. If n == 1 return 0.",
+      "function": "def min_cost(heights: list[int], k: int) -> int:",
+      "entry": "min_cost",
+      "tests": [
+        "assert min_cost([10, 30, 40, 20], 2) == 30",
+        "assert min_cost([10], 3) == 0",
+        "assert min_cost([5, 5, 5], 1) == 0",
+        "assert min_cost([1, 100, 1, 100, 1], 2) == 2",
+        "assert min_cost([3, 9, 1, 8, 2, 7], 3) == 4",
+        "assert min_cost([4, 1], 1) == 3"
+      ]
+    },
+    {
+      "id": "p2",
+      "nature": "strings / sliding window",
+      "title": "Longest k-distinct substring",
+      "statement": "Given a string s and an integer k, return the length of the longest contiguous substring of s that contains at most k distinct characters. If the string is empty return 0. If k is 0 return 0.",
+      "function": "def longest_k_distinct(s: str, k: int) -> int:",
+      "entry": "longest_k_distinct",
+      "tests": [
+        "assert longest_k_distinct('eceba', 2) == 3",
+        "assert longest_k_distinct('aa', 1) == 2",
+        "assert longest_k_distinct('abcabcbb', 2) == 2",
+        "assert longest_k_distinct('', 3) == 0",
+        "assert longest_k_distinct('abaccc', 2) == 4",
+        "assert longest_k_distinct('abc', 0) == 0"
+      ]
+    },
+    {
+      "id": "p3",
+      "nature": "graphs / BFS with state",
+      "title": "Grid with key and door",
+      "statement": "You are given a rectangular grid of characters: 'S' start, 'E' exit, '#' wall, '.' free floor, 'K' a key, 'D' a locked door. You move up/down/left/right one cell per step onto any cell that is not a wall. A door 'D' can only be entered after collecting the key 'K' (there is at most one 'K' and at most one 'D'). Return the minimum number of steps from S to E, or -1 if unreachable. Note: passing through K is optional if there is no D on the path.",
+      "function": "def min_steps(grid: list[str]) -> int:",
+      "entry": "min_steps",
+      "tests": [
+        "assert min_steps(['S.E']) == 2",
+        "assert min_steps(['S#E']) == -1",
+        "assert min_steps(['SKDE']) == 3",
+        "assert min_steps(['S.D#E']) == -1",
+        "assert min_steps(['S.K', '##D', 'E..']) == 5",
+        "assert min_steps(['E', 'S']) == 1"
+      ]
+    },
+    {
+      "id": "p4",
+      "nature": "intervals / sweep line",
+      "title": "Minimum meeting rooms",
+      "statement": "You are given a list of meetings, each a tuple (start, end) with integer times (end is exclusive, start < end). A meeting occupies a room for the whole half-open interval [start, end). Return the minimum number of rooms needed so that no two simultaneously-running meetings share a room. Meetings that touch at endpoints (one ends exactly when another starts) do not conflict. An empty list returns 0.",
+      "function": "def min_rooms(meetings: list[tuple[int, int]]) -> int:",
+      "entry": "min_rooms",
+      "tests": [
+        "assert min_rooms([]) == 0",
+        "assert min_rooms([(0, 10)]) == 1",
+        "assert min_rooms([(0, 10), (10, 20)]) == 1",
+        "assert min_rooms([(0, 10), (5, 15)]) == 2",
+        "assert min_rooms([(0, 30), (5, 10), (15, 20), (25, 30)]) == 2",
+        "assert min_rooms([(0, 5), (1, 6), (2, 7), (3, 8)]) == 4"
+      ]
+    },
+    {
+      "id": "p5",
+      "nature": "parsing / stack evaluator",
+      "title": "Integer expression evaluator",
+      "statement": "Given a string containing a single arithmetic expression with non-negative integers, the operators +, -, * and /, and round parentheses, evaluate it. Division is integer division truncating toward zero (like C). Whitespace must be ignored. Operator precedence: * and / before + and -, left-to-right for operators of equal precedence. The expression is guaranteed syntactically valid. Return the integer result.",
+      "function": "def evaluate(expr: str) -> int:",
+      "entry": "evaluate",
+      "tests": [
+        "assert evaluate('1 + 2 * 3') == 7",
+        "assert evaluate('(1 + 2) * 3') == 9",
+        "assert evaluate('100 / 7') == 14",
+        "assert evaluate('8 - 4 - 2') == 2",
+        "assert evaluate('2*(3+(4-1)/3)') == 8",
+        "assert evaluate(' 14/ 3 - 1 ') == 3",
+        "assert evaluate('0-(3 + 4) * 2') == -14"
+      ]
+    }
+  ]
+}

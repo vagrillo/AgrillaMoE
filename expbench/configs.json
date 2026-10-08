@@ -1,0 +1,15 @@
+{
+  "configs": [
+    { "id": "stock",      "flags": ["--no-moe-expansion"], "desc": "stock top-8 (baseline)" },
+    { "id": "e12",        "flags": ["--moe-experts 12 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "12 experts / 0.8 / L25-39" },
+    { "id": "e16",        "flags": ["--moe-experts 16 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "16 experts / 0.8 / L25-39" },
+    { "id": "e20",        "flags": ["--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "20 experts / 0.8 / L25-39" },
+    { "id": "e24",        "flags": ["--moe-experts 24 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "24 experts / 0.8 / L25-39" },
+    { "id": "e20t06",     "flags": ["--moe-experts 20 --moe-expert-threshold 0.6 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "20 experts / 0.6 / L25-39" },
+    { "id": "e20t09",     "flags": ["--moe-experts 20 --moe-expert-threshold 0.9 --moe-expert-layer-start 25 --moe-expert-layer-end 39"], "desc": "20 experts / 0.9 / L25-39" },
+    { "id": "e20all",     "flags": ["--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 0  --moe-expert-layer-end 39"], "desc": "20 experts / 0.8 / all layers 0-39" },
+    { "id": "e20last10",  "flags": ["--moe-experts 20 --moe-expert-threshold 0.8 --moe-expert-layer-start 30 --moe-expert-layer-end 39"], "desc": "20 experts / 0.8 / last 10 layers 30-39" },
+    { "id": "e16t07l2039","flags": ["--moe-experts 16 --moe-expert-threshold 0.7 --moe-expert-layer-start 20 --moe-expert-layer-end 39"], "desc": "16 experts / 0.7 / L20-39" }
+  ],
+  "note": "Layer ranges apply to Qwen3.6-35B-A3B (40 decoder layers). The expansion raises the routed-expert budget above the native top-8 with an adaptive threshold: at T=0.8 with N=20 each token keeps between 5 and 20 experts (lower T keeps more)."
+}

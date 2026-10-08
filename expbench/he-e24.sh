@@ -37,6 +37,7 @@ echo "###### HUMANEVAL e24 (24 esperti / 0.8 / L25-39) — budget $BUDGET — $(
 ./dist/linux/agrillamoe -m "$M" \
     --moe-experts 24 --moe-expert-threshold 0.8 --moe-expert-layer-start 25 --moe-expert-layer-end 39 \
     --flash-attn on -ctk q8_0 -ctv q8_0 --fit off -ngl 99 \
+    --reasoning-budget "$BUDGET" \
     --host 127.0.0.1 --port $PORT --no-browser \
     -c 16384 -np 1 > "$LOG" 2>&1 &
 SRV=$!

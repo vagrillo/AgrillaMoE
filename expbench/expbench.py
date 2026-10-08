@@ -135,6 +135,7 @@ def stage_gen(args):
         if only and cfg["id"] not in only:
             continue
         out_dir = os.path.join(RUNS, cfg["id"])
+        os.makedirs(out_dir, exist_ok=True)
         todo = [p for p in PROBLEMS
                 if not os.path.exists(os.path.join(out_dir, p["id"] + ".json"))]
         if not todo:

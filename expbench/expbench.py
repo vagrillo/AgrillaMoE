@@ -29,6 +29,8 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+BENCH_ROOT = os.path.dirname(HERE)              # radice AgrillaMoE
+BIN = os.path.join(BENCH_ROOT, "dist", "linux", "agrillamoe")
 CFG = json.load(open(os.path.join(HERE, "configs.json"), encoding="utf-8"))["configs"]
 PROBLEMS = json.load(open(os.path.join(HERE, "problems.json"), encoding="utf-8"))["problems"]
 RUNS = os.path.join(HERE, "runs")
@@ -57,7 +59,8 @@ def health(port):
 
 
 def start_server(model, flags, port, log):
-    cmd = ["./dist/linux/agrillamoe", "-m", model] + flags + [
+    model_abs = model if os.path.isabs(model) else os.path.join(BENCH_ROOT, model)
+    cmd = [BIN, "-m", model_abs] + flags + [
         "--flash-attn", "on", "-ctk", "q8_0", "-ctv", "q8_0",
         "-c", str(CTX), "-np", "1", "-ngl", "99", "--no-browser",
         "--host", "127.0.0.1", "--port", str(port),

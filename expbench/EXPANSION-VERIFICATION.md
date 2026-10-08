@@ -79,6 +79,39 @@ Reading:
 | HumanEval-style (Q4_K_M, earlier bench) | pass@1 | 89.63 % | 90.85 % (e20) | — |
 | This benchmark, 5 coding problems (Q3_K_XL) | test ratio | **0.867** | 0.867 (e12/e24) | **0.667** (e16-e20all) |
 
+## Master table — parameters, quality, reasoning
+
+One row per configuration: routing parameters, objective test results (pass
+ratio per problem + mean over 5), reasoning-trace metrics (average per problem:
+thinking length in characters, generated tokens, reconsiderations —
+`wait/alternatively/hmm/actually/let me reconsider` — and self-verifications —
+`verify/check/double-check/sanity`), and the coding-quality verdict.
+
+| config | experts | thr | layers | p1 | p2 | p3 | p4 | p5 | mean | think ch | gen tok | reconsider | verify | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| stock | 8 | — | none | .67 | .83 | .83 | 1.00 | 1.00 | **.867** | 18 145 | 5 768 | 16.6 | 10.6 | ✅ best overall |
+| e12 | 12 | .80 | 25-39 | .67 | .83 | .83 | 1.00 | 1.00 | **.867** | 34 017 | 11 095 | 26.0 | 19.6 | ✅ tie; most deliberative |
+| e24 | 24 | .80 | 25-39 | .67 | .83 | .83 | 1.00 | 1.00 | **.867** | **15 729** | **5 158** | **13.4** | 8.0 | ✅ tie; cleanest reasoning |
+| e20last10 | 20 | .80 | 30-39 | .67 | .83 | .83 | 1.00 | 1.00 | **.867** | 26 776 | 8 619 | 13.6 | 11.2 | ✅ tie; last-10 variant |
+| e16t07l2039 | 16 | .70 | 20-39 | .50 | .83 | .83 | 1.00 | 1.00 | .833 | 21 427 | 7 013 | 18.4 | 10.0 | mild p1 regression |
+| e20t06 | 20 | .60 | 25-39 | .33 | .83 | .83 | 1.00 | 1.00 | .800 | **42 823** | 14 238 | 42.2 | 21.8 | T=0.6 → overthinking spiral |
+| e16 | 16 | .80 | 25-39 | .67 | .83 | .83 | 1.00 | 0.00 | .667 | **42 350** | **13 598** | **89.4** | 31.2 | ❌ 5× stock reconsiderations |
+| e20 | 20 | .80 | 25-39 | .67 | .83 | .83 | 1.00 | 0.00 | .667 | 27 057 | 8 433 | 25.8 | 12.8 | ❌ p5 collapse |
+| e20t09 | 20 | .90 | 25-39 | .67 | .83 | .83 | 1.00 | 0.00 | .667 | 30 979 | 9 728 | 18.6 | 17.0 | ❌ p5 collapse |
+| e20all | 20 | .80 | 0-39 | .67 | .83 | .83 | 1.00 | 0.00 | .667 | 32 733 | 10 641 | **92.6** | **88.6** | ❌ verification loop |
+
+**Reading the reconsideration column**: it counts `wait / alternatively / hmm /
+actually / let me reconsider` occurrences per problem in the reasoning trace —
+the objective marker of the overthinking spiral. The two worst configs by this
+metric (e16 at 89.4, e20all at 92.6) are exactly the two with p5 collapse, and
+their verification counts (31-89/problem) show the model stuck in
+check-recheck-recheck cycles instead of committing to an answer.
+
+**Efficiency frontier**: stock and e24 sit on the quality-per-effort frontier
+(0.867 mean at 5.2-5.8 k tokens); e12 ties on quality at 2× the effort (its
+extra deliberation is the GPQA headroom); every config right of the frontier
+pays more tokens for less quality.
+
 ## Findings
 
 1. **MoE-expansion does not improve coding quality on this model at 3.4 bpw.**

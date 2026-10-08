@@ -143,7 +143,8 @@ def stage_gen(args):
             continue
         print(f"===== config {cfg['id']}: {cfg['desc']} — {len(todo)} problemi da generare =====", flush=True)
         log = os.path.join(RUNS, f"srv-{cfg['id']}.log")
-        proc = start_server(args.model, cfg["flags"] + base_flags, PORT_GEN, log)
+        server_flags = [f for fl in cfg["flags"] for f in fl.split()]
+        proc = start_server(args.model, server_flags + base_flags, PORT_GEN, log)
         if proc is None:
             print(f"SERVER NON PRONTO ({cfg['id']}), skip — vedi {log}")
             continue

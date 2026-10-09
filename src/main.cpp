@@ -745,6 +745,28 @@ int main(int argc, char ** argv) {
     const bool opt_chunk_predict = env_flag_on("AGRILLA_CHUNK_PREDICT") ||
                                    have_flag(argc, argv, {"--agrilla-chunk-predict"});
 
+    // moe-reduce: potatura dinamica del routing (inverso dell'expansion):
+    // --moe-reduce X  → mantieni solo gli esperti con peso >= X * peso(top-1)
+    // --moe-reduce-layers S-E → range di layer (default: tutti)
+    const bool opt_reduce      = env_flag_on("LLAMA_MOE_REDUCE") ||
+                                 have_flag(argc, argv, {"--moe-reduce"});
+    const float opt_reduce_f   = [](){ const char * e = getenv("LLAMA_MOE_REDUCE"); return e ? atof(e) : 0.0f; }();
+    if (opt_reduce && opt_reduce_f > 0.0f) {
+        if (have_flag(argc, argv, {"--moe-reduce-layers"})) {
+            std::string lr = get_flag_value(argc, argv, {"--moe-reduce-layers"}, "0--1");
+            int s_ = 0, e_ = -1;
+            if (sscanf(lr.c_str(), "%d-%d", &s_, &e_) == 2) {
+                setenv("LLAMA_MOE_REDUCE_START", std::to_string(s_).c_str(), 1);
+                setenv("LLAMA_MOE_REDUCE_END",   std::to_string(e_).c_str(), 1);
+            }
+        }
+#ifdef _WIN32
+        { char b[64]; snprintf(b, sizeof b, "%.4f", opt_reduce_f); setenv("LLAMA_MOE_REDUCE", b, 1); }
+#else
+        setenv("LLAMA_MOE_REDUCE", [](){ static char b[32]; return b; }(), 1);
+#endif
+    }
+
     // flag custom AgrillaMoE: consumati qui, tolti da quanto passato a llama_server
     std::string extra_dir = get_flag_value(argc, argv, {"--agrilla-models-dir", "--models-dir"}, "");
     bool list_only        = have_flag(argc, argv, {"--agrilla-list-models"});
@@ -759,7 +781,8 @@ int main(int argc, char ** argv) {
             t == "--agrilla-gpu-streaming" || t == "--agrilla-chunk-predict") {
             continue;
         }
-        if (t == "--agrilla-models-dir" || t == "--models-dir") { ++i; continue; }   // salta anche il valore
+        if (t == "--agrilla-models-dir" || t == "--models-dir" ||
+            t == "--moe-reduce" || t == "--moe-reduce-layers") { ++i; continue; }   // salta anche il valore
         clean.push_back(t);
     }
 

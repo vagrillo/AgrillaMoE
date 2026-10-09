@@ -750,20 +750,31 @@ int main(int argc, char ** argv) {
     // --moe-reduce-layers S-E → range di layer (default: tutti)
     const bool opt_reduce      = env_flag_on("LLAMA_MOE_REDUCE") ||
                                  have_flag(argc, argv, {"--moe-reduce"});
-    const float opt_reduce_f   = [](){ const char * e = getenv("LLAMA_MOE_REDUCE"); return e ? atof(e) : 0.0f; }();
+    float opt_reduce_f = [](){ const char * e = getenv("LLAMA_MOE_REDUCE"); return e ? atof(e) : 0.0f; }();
+    if (have_flag(argc, argv, {"--moe-reduce"})) {
+        std::string rv = get_flag_value(argc, argv, {"--moe-reduce"}, "");
+        if (!rv.empty()) opt_reduce_f = (float) atof(rv.c_str());
+    }
     if (opt_reduce && opt_reduce_f > 0.0f) {
         if (have_flag(argc, argv, {"--moe-reduce-layers"})) {
             std::string lr = get_flag_value(argc, argv, {"--moe-reduce-layers"}, "0--1");
             int s_ = 0, e_ = -1;
             if (sscanf(lr.c_str(), "%d-%d", &s_, &e_) == 2) {
+#ifdef _WIN32
+                _putenv_s("LLAMA_MOE_REDUCE_START", std::to_string(s_).c_str());
+                _putenv_s("LLAMA_MOE_REDUCE_END",   std::to_string(e_).c_str());
+#else
                 setenv("LLAMA_MOE_REDUCE_START", std::to_string(s_).c_str(), 1);
                 setenv("LLAMA_MOE_REDUCE_END",   std::to_string(e_).c_str(), 1);
+#endif
             }
         }
+        char b[64];
+        snprintf(b, sizeof b, "%g", (double) opt_reduce_f);
 #ifdef _WIN32
-        { char b[64]; snprintf(b, sizeof b, "%.4f", opt_reduce_f); setenv("LLAMA_MOE_REDUCE", b, 1); }
+        _putenv_s("LLAMA_MOE_REDUCE", b);
 #else
-        setenv("LLAMA_MOE_REDUCE", [](){ static char b[32]; return b; }(), 1);
+        setenv("LLAMA_MOE_REDUCE", b, 1);
 #endif
     }
 
@@ -782,7 +793,8 @@ int main(int argc, char ** argv) {
             continue;
         }
         if (t == "--agrilla-models-dir" || t == "--models-dir" ||
-            t == "--moe-reduce" || t == "--moe-reduce-layers") { ++i; continue; }   // salta anche il valore
+            t.rfind("--moe-reduce=", 0) == 0 || t.rfind("--moe-reduce-layers=", 0) == 0) { continue; }
+        if (t == "--moe-reduce" || t == "--moe-reduce-layers") { ++i; continue; }   // salta anche il valore
         clean.push_back(t);
     }
 

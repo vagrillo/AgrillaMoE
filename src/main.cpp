@@ -883,6 +883,18 @@ int main(int argc, char ** argv) {
             printf("[AgrillaMoE] MoE con top-K nativo %lld >= 20: il profilo lo poterebbe potare, non iniettato\n",
                    (long long) eu);
             moe_summary = "non iniettata (top-K nativo >= 20)";
+        } else if (bc == 40 && ec == 64 && eu == 4) {
+            // firma LFM2.5-24B-A2B: 40 livelli, 64 esperti, top-4 (prima della
+            // firma Qwen3.6, che condivide bc=40 — l'e20 del 35B non e' calibrato
+            // per un top-4 da 2B attivi: raddoppio conservativo 4->8, stessa
+            // soglia e stesso range di livelli tardivi)
+            for (const char * a : {"--moe-experts", "8",
+                                   "--moe-expert-threshold", "0.8",
+                                   "--moe-expert-layer-start", "25",
+                                   "--moe-expert-layer-end", "39"}) {
+                clean.push_back(a);
+            }
+            moe_summary = "esperti 8, soglia 0.80, livelli 25-39 (LFM2.5-24B-A2B: 64 esperti, top-4)";
         } else if (bc == 40) {
             // firma di Qwen3.6-35B-A3B: 40 livelli -> profilo completo del benchmark
             for (const char * a : {"--moe-experts", "20",

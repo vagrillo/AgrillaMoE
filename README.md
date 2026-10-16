@@ -42,6 +42,23 @@ inference with the quantized GGUFs published by **Unsloth**, built on the
    The profile is injected **only if the user passes no `--moe-*` / `--q35-*`
    flag**; `--no-moe-expansion` (or `AGRILLA_NO_MOE_EXPANSION=1`) disables it
    entirely.
+
+   **Other supported MoE families** get their own signature-based profile
+   (matched on GGUF metadata: `block_count` / `expert_count` /
+   `expert_count_used`), checked before the Qwen3.6 one:
+
+   | model | signature | profile injected |
+   |---|---|---|
+   | Qwen3.6-35B-A3B | 40 layers, top-8 | experts 20, thr 0.80, layers 25-39 |
+   | LiquidAI **LFM2.5-24B-A2B** (`lfm2moe`) | 40 layers, 64 experts, top-4 | experts **8**, thr 0.80, layers 25-39 |
+   | other MoE | any | experts 20, thr 0.80 (no layer range) |
+
+   The LFM2.5 profile doubles the routed budget (4 → 8) on the late layers —
+   the conservative counterpart of the Qwen3.6 8 → 20 expansion. `--moe-reduce`
+   (value-threshold pruning) and `--moe-reduce-layers` also work on `lfm2moe`
+   models. Note: the official `Q8_0` (25.5 GB) does **not** fit a 24 GB GPU —
+   AgrillaMoE auto-engages expert-streaming when the file exceeds the VRAM
+   budget, or use `Q6_K` (19.7 GB) for a full-GPU fit.
 3. **Default endpoint `127.0.0.1:8071`** and **automatic browser open**
    (Windows via `ShellExecute`, Linux/WSL via `wslview`) as soon as the server
    listens. `--no-browser` or `AGRILLA_NO_BROWSER=1` disables it.

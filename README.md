@@ -286,6 +286,10 @@ questions) — **full write-up in [docs/bench-LFM2.5.md](docs/bench-LFM2.5.md)**
 | **MoE-expansion 8, layers 25-39** | **78.0%** (+8 pts) | 36.5 tok/s |
 | Expansion 12, layers 20-39 | 64.0% | 39.2 tok/s |
 
+Reference: official BF16 reports **74.42%** on GPQA Diamond (vLLM, recommended
+generation params — [source](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b)).
+The e8 expansion in 4-bit beats it by +3.6 pts.
+
 Takeaway: the conservative doubling of the native expert budget on the late
 layers is the sweet spot (+8 GPQA points for -6% throughput); aggressive
 expansion hurts a 2B-active model.

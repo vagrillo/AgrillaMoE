@@ -28,10 +28,29 @@ KV q8_0, `--reasoning-budget 8192`, temperatura 0, evalscope, batch 4,
 | **exp01: e8, thr 0.80, layer 25-39** | **78.0%** | 36.5 tok/s | 27.0 ms | 21/50 (42%) |
 | exp02: e12, thr 0.80, layer 20-39 | 64.0% | 39.2 tok/s | 25.2 ms | 26/50 (52%) |
 
+### Confronto con il BF16 ufficiale
+
+LiquidAI riporta per LFM2.5-24B-A2B in BF16 **74.42%** su GPQA Diamond
+([fonte: HF blog LiquidAI/lfm25-24b-a2b](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b),
+valutato con vLLM e i parametri di generazione raccomandati da ciascun benchmark,
+senza budget di reasoning esplicito). Per contesto, nello stesso confronto:
+Qwen3.6-35B-A3B 83.69, Gemma-4-26B-A4B 74.90.
+
+| run (QAD-Q4_0 4-bit, budget 8K) | GPQA-Diamond | vs BF16 74.42% |
+|---|---|---|
+| noexp (stock top-4) | 70.0% | −4.4 |
+| **exp01 (e8, layer 25-39)** | **78.0%** | **+3.6** |
+
+**L'expansion e8 non solo recupera il costo della quantizzazione 4-bit, supera
+il riferimento BF16 ufficiale.** Attenzione al confronto: i protocolli differiscono
+(vLLM vs llama.cpp, 50 domande vs set completo, budget 8K vs non specificato,
+parametri di sampling diversi) — il confronto è indicativo, non apples-to-apples.
+
 ### Findings
 
 1. **Il raddoppio conservativo (4→8) sui layer tardivi è il sweet spot**: +8 punti
-   GPQA-Diamond per -6% di throughput. Stesso pattern del profilo Qwen3.6 (8→20),
+   GPQA-Diamond per -6% di throughput, portando il 4-bit sopra il riferimento
+   BF16 ufficiale. Stesso pattern del profilo Qwen3.6 (8→20),
    qui amplificato dalla larghezza nativa più stretta (top-4).
 2. **L'espansione aggressiva danneggia**: e12 su layer 20-39 perde 6 punti rispetto
    allo stock. La soglia 0.80 tiene pochi esperti extra, ma il mix pesato con tanti

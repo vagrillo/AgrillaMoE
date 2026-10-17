@@ -61,10 +61,32 @@ parametri di sampling diversi) — il confronto è indicativo, non apples-to-app
    modo più efficiente (meno cap-hit, mediano più basso); la peggiore è quella
    che satura di più — più esperti deboli → più pensiero circolare.
 
-## Run a budget 16K (in corso)
+## Run a budget 16K (completo, 198 domande)
 
-GPQA-Diamond completo (198 domande), budget 16384, ctx 81920 (4 slot × 20480),
-config **noexp** e **exp01**. Risultati in aggiornamento.
+GPQA-Diamond completo, budget 16384, ctx 81920 (4 slot × 20480), config
+**noexp** e **exp01**. Confronto accoppiato (le 50 domande dell'8K sono un
+prefisso del set 198, stessi indici):
+
+| config | paired-50 @8K | paired-50 @16K | full-198 @16K |
+|---|---|---|---|
+| noexp (stock top-4) | 70.0% | **80.0%** | 73.2% |
+| exp01 (e8, L25-39) | 78.0% | 74.0% | 71.7% |
+
+Segmento accoppiato "ex-cap-8K" (domande che a 8K saturavano il budget):
+
+| segmento | @8K | @16K |
+|---|---|---|
+| noexp, 23 domande ex-cap | 34.8% | **56.5%** |
+| exp01, 21 domande ex-cap | 66.7% | 52.4% |
+
+**Inversione col budget**: a 8K l'expansion vince (+8), a 16K perde (−1.5 su
+full, −6 su paired) — il routing espanso converge più sicuro sotto pressione ma
+overthinking quando ha spazio (le sue risposte ex-cap quasi raddoppiano in
+lunghezza e peggiorano). Il budget 16K fa salire lo stock sopra il riferimento
+BF16 (80.0% paired / 73.2% full vs 74.42%). L'expansion resta il modo di
+raggiungere la stessa classe di punteggio con ~metà budget di reasoning
+(78.0% @8K, ~6.9K tok/risposta vs 80.0% @16K, ~9.7K tok/risposta).
+Dettagli completi: [lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md).
 
 ---
 Setup VM: vast.ai V100-SXM2-16GB, driver 580, CUDA 12.8. Date: 2026-10-17.

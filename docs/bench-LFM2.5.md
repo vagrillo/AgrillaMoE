@@ -102,5 +102,30 @@ Anche sul blocco piu' duro il budget 16K batte l'8K per entrambe le config: il
 cap e' il limite principale, non il routing. Raw in
 `data/bench-lfm25/cap8k/`, runner in `data/bench-lfm25/scripts/cap8k.py`.
 
+## Full GPQA-Diamond @8K (resoconto esteso, 198 domande)
+
+Combinando run 8K (prime 50), rerun cap-16K @8K e il resto preso dal run 16K
+come proxy (domande il cui reasoning non tocca il cap, comportamento atteso
+identico a 8K):
+
+**noexp (stock top-4): 134/198 = 67.7%**
+
+| segmento | domande | score |
+|---|---|---|
+| prime 50 (run 8K) | 50 | 35/50 = 70.0% |
+| cap-16K rerun @8K | 77 | 34/77 = 44.2% |
+| resto (proxy) | 71 | 65/71 = 91.5% |
+
+**exp01 (e8, layer 25-39): 140/198 = 70.7%**
+
+| segmento | domande | score |
+|---|---|---|
+| prime 50 (run 8K) | 50 | 39/50 = 78.0% |
+| cap-16K rerun @8K | 69 | 29/69 = 42.0% |
+| resto (proxy) | 79 | 72/79 = 91.1% |
+
+Head-to-head sul set completo: **exp01 +3.0 punti** (70.7% vs 67.7%). Segmenti
+misurati: 127/198 domande per config; il resto e' proxy (non vincolato dal cap).
+
 ---
 Setup VM: vast.ai V100-SXM2-16GB, driver 580, CUDA 12.8. Date: 2026-10-17.

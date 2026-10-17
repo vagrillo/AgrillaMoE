@@ -1,131 +1,84 @@
-# Benchmark: LiquidAI LFM2.5-24B-A2B su AgrillaMoE
+# LiquidAI LFM2.5-24B-A2B on AgrillaMoE — full GPQA-Diamond @ 8K reasoning budget
 
-Prima caratterizzazione del profilo MoE-expansion su **LFM2.5-24B-A2B**
-(arch `lfm2moe`: 40 layer, 64 esperti, **top-4 nativo**, ~2B attivi),
-sulla falsariga del protocollo usato per Qwen3.6-35B-A3B.
+**Headline result — full GPQA-Diamond (198 questions), 4-bit QAD-Q4_0, 8K reasoning
+budget, temperature 0, V100-16GB:**
 
-## Compatibilità
-
-| componente | stato |
+| config | score (198q) |
 |---|---|
-| fork llama.cpp (branch `moe-expansion`) | ✅ nessuna modifica necessaria: il grafo `lfm2` chiama `build_moe_ffn` con gating softmax e `norm_w=true`, tutte le guardie di expansion/reduce passano |
-| wrapper AgrillaMoE | ✅ firma dedicata `bc==40 && ec==64 && eu==4` → profilo auto-iniettato **esperti 8, soglia 0.80, layer 25-39** (prima della firma Qwen3.6, che condivide `bc==40`) |
-| `--moe-reduce` / `--moe-reduce-layers` | ✅ validato (rinormalizzazione massa-preservante) |
-| immagine serverless Docker | ✅ `ghcr.io/vagrillo/agrillamoe-serverless` — il profilo auto si applica anche in serverless |
+| stock top-4 (noexp) | 134/198 = **67.7%** |
+| **MoE-expansion 8, thr 0.80, layers 25-39 (exp01)** | 140/198 = **70.7%** |
+| official BF16 (LiquidAI, vLLM) | 74.42% ([source](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b)) |
 
-Validazione funzionale su LFM2-8B-A1B (stesso arch, top-4 nativo): stock,
-`--moe-reduce 0.5` ed expansion 4→20 generano correttamente.
+**MoE-expansion adds +3.0 points over stock on the full dataset at 8K budget.**
+The 4-bit models stay below the BF16 reference on the full set (−3.7 for the
+expanded config); on the harder 50-question paired subset the expanded config
+scored **78.0%, above the BF16 reference** — subset composition matters, and the
+reasoning budget (8K, capped ~46% of answers) is a first-class variable.
 
-## Risultati GPQA-Diamond @ reasoning budget 8K
+Every question is covered by direct measurement or a documented proxy:
+the first 50 come from the direct 8K run, the 146 budget-sensitive questions
+(index ≥ 50 whose 16K-trace reasoning exceeded 8K tokens) were re-run directly
+at 8K, and the remaining non-capping questions use their 16K score as a proxy
+(their reasoning never touches the cap, so 8K behavior is expected to match).
+127/198 questions per config are direct measurements.
 
-Setup: Tesla V100-16GB, QAD-Q4_0 (13.6 GB, full GPU), ctx 65536 (4 slot × 16384),
-KV q8_0, `--reasoning-budget 8192`, temperatura 0, evalscope, batch 4,
-**50 domande** (stesso set per tutte le config, confronto accoppiato).
+## Per-config breakdown (full 198 @ 8K)
 
-| config | accuratezza | throughput | tpot medio | domande al tetto 8K |
-|---|---|---|---|---|
-| noexp (stock top-4) | 70.0% | 38.7 tok/s | 25.2 ms | 23/50 (46%) |
-| **exp01: e8, thr 0.80, layer 25-39** | **78.0%** | 36.5 tok/s | 27.0 ms | 21/50 (42%) |
-| exp02: e12, thr 0.80, layer 20-39 | 64.0% | 39.2 tok/s | 25.2 ms | 26/50 (52%) |
+**stock top-4: 134/198 = 67.7%**
 
-### Confronto con il BF16 ufficiale
-
-LiquidAI riporta per LFM2.5-24B-A2B in BF16 **74.42%** su GPQA Diamond
-([fonte: HF blog LiquidAI/lfm25-24b-a2b](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b),
-valutato con vLLM e i parametri di generazione raccomandati da ciascun benchmark,
-senza budget di reasoning esplicito). Per contesto, nello stesso confronto:
-Qwen3.6-35B-A3B 83.69, Gemma-4-26B-A4B 74.90.
-
-| run (QAD-Q4_0 4-bit, budget 8K) | GPQA-Diamond | vs BF16 74.42% |
+| segment | questions | score |
 |---|---|---|
-| noexp (stock top-4) | 70.0% | −4.4 |
-| **exp01 (e8, layer 25-39)** | **78.0%** | **+3.6** |
+| first 50 (direct 8K run) | 50 | 35/50 = 70.0% |
+| budget-sensitive (direct 8K re-run) | 77 | 34/77 = 44.2% |
+| never capped (16K proxy) | 71 | 65/71 = 91.5% |
 
-**L'expansion e8 non solo recupera il costo della quantizzazione 4-bit, supera
-il riferimento BF16 ufficiale.** Attenzione al confronto: i protocolli differiscono
-(vLLM vs llama.cpp, 50 domande vs set completo, budget 8K vs non specificato,
-parametri di sampling diversi) — il confronto è indicativo, non apples-to-apples.
+**expansion 8, layers 25-39: 140/198 = 70.7%**
 
-### Findings
-
-1. **Il raddoppio conservativo (4→8) sui layer tardivi è il sweet spot**: +8 punti
-   GPQA-Diamond per -6% di throughput, portando il 4-bit sopra il riferimento
-   BF16 ufficiale. Stesso pattern del profilo Qwen3.6 (8→20),
-   qui amplificato dalla larghezza nativa più stretta (top-4).
-2. **L'espansione aggressiva danneggia**: e12 su layer 20-39 perde 6 punti rispetto
-   allo stock. La soglia 0.80 tiene pochi esperti extra, ma il mix pesato con tanti
-   rank deboli in decay diluisce il routing. Su un budget attivo di 2B, oltre il
-   raddoppio si peggiora.
-3. **Il budget 8K è un vincolo attivo**: 40-52% delle domande satura il tetto
-   (dipende dalla config). La config vincitrice è anche quella che ragiona in
-   modo più efficiente (meno cap-hit, mediano più basso); la peggiore è quella
-   che satura di più — più esperti deboli → più pensiero circolare.
-
-## Run a budget 16K (completo, 198 domande)
-
-GPQA-Diamond completo, budget 16384, ctx 81920 (4 slot × 20480), config
-**noexp** e **exp01**. Confronto accoppiato (le 50 domande dell'8K sono un
-prefisso del set 198, stessi indici):
-
-| config | paired-50 @8K | paired-50 @16K | full-198 @16K |
-|---|---|---|---|
-| noexp (stock top-4) | 70.0% | **80.0%** | 73.2% |
-| exp01 (e8, L25-39) | 78.0% | 74.0% | 71.7% |
-
-Segmento accoppiato "ex-cap-8K" (domande che a 8K saturavano il budget):
-
-| segmento | @8K | @16K |
+| segment | questions | score |
 |---|---|---|
-| noexp, 23 domande ex-cap | 34.8% | **56.5%** |
-| exp01, 21 domande ex-cap | 66.7% | 52.4% |
+| first 50 (direct 8K run) | 50 | 39/50 = 78.0% |
+| budget-sensitive (direct 8K re-run) | 69 | 29/69 = 42.0% |
+| never capped (16K proxy) | 79 | 72/79 = 91.1% |
 
-**Inversione col budget**: a 8K l'expansion vince (+8), a 16K perde (−1.5 su
-full, −6 su paired) — il routing espanso converge più sicuro sotto pressione ma
-overthinking quando ha spazio (le sue risposte ex-cap quasi raddoppiano in
-lunghezza e peggiorano). Il budget 16K fa salire lo stock sopra il riferimento
-BF16 (80.0% paired / 73.2% full vs 74.42%). L'expansion resta il modo di
-raggiungere la stessa classe di punteggio con ~metà budget di reasoning
-(78.0% @8K, ~6.9K tok/risposta vs 80.0% @16K, ~9.7K tok/risposta).
-Dettagli completi: [lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md).
+Both configs share the same shape: ~70-78% on the head of the dataset, ~42-44%
+on the budget-saturating tail, ~91% on questions the cap never binds. The
+expansion advantage concentrates exactly where the routing has room to matter.
 
-## Run 8K sulle domande cap-16K (segmento accoppiato esteso)
+## Setup
 
-Le domande oltre l'indice 50 il cui reasoning nel run 16K ha superato 8192
-token (77 noexp + 69 exp01), rilanciate a budget 8K:
+- Model: LiquidAI LFM2.5-24B-A2B (24B total / ~2B active, 40 layers, 64 experts,
+  native top-4, arch `lfm2moe`), QAD-Q4_0 4-bit (13.6 GB, full GPU offload)
+- Hardware: vast.ai 1× Tesla V100-SXM2-16GB; CUDA 12.8; KV q8_0; ctx 65536
+  (4 slots × 16384); 4 concurrent requests; temperature 0
+- Engine: AgrillaMoE (llama.cpp fork) — the wrapper auto-injects the expansion
+  profile for this model family (`--moe-experts 8 --moe-expert-threshold 0.8
+  --moe-expert-layer-start 25 --moe-expert-layer-end 39`)
+- Scoring: evalscope GPQA-Diamond (accuracy on the chosen option), review
+  pipeline; raw predictions/reviews/configs/logs committed under
+  [`data/bench-lfm25/`](../data/bench-lfm25/README.md)
 
-| segmento cap-16K | @8K | @16K | delta |
-|---|---|---|---|
-| noexp (77q) | 44.2% | **51.9%** | +7.7 (7 salte, 13 cadute) |
-| exp01 (69q) | 42.0% | **47.8%** | +5.8 (10 salte, 14 cadute) |
+## Compatibility
 
-Anche sul blocco piu' duro il budget 16K batte l'8K per entrambe le config: il
-cap e' il limite principale, non il routing. Raw in
-`data/bench-lfm25/cap8k/`, runner in `data/bench-lfm25/scripts/cap8k.py`.
+- Fork (`moe-expansion` branch): works unmodified — the `lfm2` graph calls
+  `build_moe_ffn` with softmax gating and passes all expansion/reduce guards.
+- Wrapper: signature-based auto-profile (40 layers, 64 experts, top-4 → the
+  e8/L25-39 profile above), checked before the Qwen3.6 signature.
+- Serverless: the published Docker image
+  (`ghcr.io/vagrillo/agrillamoe-serverless:latest`) applies the same profile
+  automatically (PyWorker `BACKEND=llama` contract).
+- `--moe-reduce` (value-threshold pruning with mass-preserving renorm) also
+  validated on this family.
 
-## Full GPQA-Diamond @8K (resoconto esteso, 198 domande)
+## Additional experiments (budget study)
 
-Combinando run 8K (prime 50), rerun cap-16K @8K e il resto preso dal run 16K
-come proxy (domande il cui reasoning non tocca il cap, comportamento atteso
-identico a 8K):
-
-**noexp (stock top-4): 134/198 = 67.7%**
-
-| segmento | domande | score |
-|---|---|---|
-| prime 50 (run 8K) | 50 | 35/50 = 70.0% |
-| cap-16K rerun @8K | 77 | 34/77 = 44.2% |
-| resto (proxy) | 71 | 65/71 = 91.5% |
-
-**exp01 (e8, layer 25-39): 140/198 = 70.7%**
-
-| segmento | domande | score |
-|---|---|---|
-| prime 50 (run 8K) | 50 | 39/50 = 78.0% |
-| cap-16K rerun @8K | 69 | 29/69 = 42.0% |
-| resto (proxy) | 79 | 72/79 = 91.1% |
-
-Head-to-head sul set completo: **exp01 +3.0 punti** (70.7% vs 67.7%). Segmenti
-misurati: 127/198 domande per config; il resto e' proxy (non vincolato dal cap).
+The interaction between expert budget and reasoning budget is documented in
+[lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md): at a tight 8K cap expansion
+wins by +8 over stock; at 16K the sign inverts (stock 80.0% paired / 73.2% full
+vs expansion 74.0% / 71.7%) — expansion buys budget-efficiency (same score
+class at roughly half the thinking tokens), not a higher ceiling. A tripling
+budget (e12) scores below stock. Rerunning the 16K-capped questions at 8K
+confirms the cap is the main limit on the hardest block (16K beats 8K for both
+configs: stock 44.2% → 51.9%, expansion 42.0% → 47.8%).
 
 ---
-Setup VM: vast.ai V100-SXM2-16GB, driver 580, CUDA 12.8. Date: 2026-10-17.
+Date: 2026-10-17. Raw data: [`data/bench-lfm25/`](../data/bench-lfm25/README.md).

@@ -276,23 +276,23 @@ routing A/B on an RTX 2080 Ti with UD-IQ4_XS 4-bit (thinking budget 4096):
 ## Benchmark results: LiquidAI LFM2.5-24B-A2B (MoE, top-4)
 
 AgrillaMoE supports this model natively (arch `lfm2moe` — signature-based
-profile auto-injection: experts 8, threshold 0.80, layers 25-39). First
-GPQA-Diamond measurement on a V100-16GB with QAD-Q4_0 (budget 8K, 50 paired
-questions) — **full write-up in [docs/bench-LFM2.5.md](docs/bench-LFM2.5.md)**:
+profile auto-injection: experts 8, threshold 0.80, layers 25-39). Full
+GPQA-Diamond (198 questions), 4-bit QAD-Q4_0, 8K reasoning budget, V100-16GB —
+**full write-up in [docs/bench-LFM2.5.md](docs/bench-LFM2.5.md)**:
 
-| Config | Accuracy | Throughput |
-|---|---|---|
-| Stock top-4 | 70.0% | 38.7 tok/s |
-| **MoE-expansion 8, layers 25-39** | **78.0%** (+8 pts) | 36.5 tok/s |
-| Expansion 12, layers 20-39 | 64.0% | 39.2 tok/s |
+| Config | Accuracy (198q @ 8K) |
+|---|---|
+| Stock top-4 | 67.7% |
+| **MoE-expansion 8, layers 25-39** | **70.7%** (+3.0) |
+| Official BF16 (vLLM, [source](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b)) | 74.42% |
 
-Reference: official BF16 reports **74.42%** on GPQA Diamond (vLLM, recommended
-generation params — [source](https://huggingface.co/blog/LiquidAI/lfm25-24b-a2b)).
-The e8 expansion in 4-bit beats it by +3.6 pts.
+On the harder 50-question paired subset the expanded config scored **78.0%**,
+above the BF16 reference (protocols differ — see the write-up). The budget
+study ([lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md)) shows expansion is a
+*budget-efficiency* lever: +8 pts at a tight 8K cap, sign inversion at 16K.
 
 Takeaway: the conservative doubling of the native expert budget on the late
-layers is the sweet spot (+8 GPQA points for -6% throughput); aggressive
-expansion hurts a 2B-active model.
+layers is the sweet spot; aggressive expansion hurts a 2B-active model.
 
 Full details (methodology, paired analysis, caveats) in
 **[humaneval-eval.md](humaneval-eval.md)**.

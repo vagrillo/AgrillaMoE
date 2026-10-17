@@ -273,6 +273,23 @@ routing A/B on an RTX 2080 Ti with UD-IQ4_XS 4-bit (thinking budget 4096):
 | Stock top-8 | 89.63% (147/164) | 69.3 tok/s |
 | MoE-expansion 20 | **90.85%** (149/164) | 56.0 tok/s |
 
+## Benchmark results: LiquidAI LFM2.5-24B-A2B (MoE, top-4)
+
+AgrillaMoE supports this model natively (arch `lfm2moe` — signature-based
+profile auto-injection: experts 8, threshold 0.80, layers 25-39). First
+GPQA-Diamond measurement on a V100-16GB with QAD-Q4_0 (budget 8K, 50 paired
+questions) — **full write-up in [docs/bench-LFM2.5.md](docs/bench-LFM2.5.md)**:
+
+| Config | Accuracy | Throughput |
+|---|---|---|
+| Stock top-4 | 70.0% | 38.7 tok/s |
+| **MoE-expansion 8, layers 25-39** | **78.0%** (+8 pts) | 36.5 tok/s |
+| Expansion 12, layers 20-39 | 64.0% | 39.2 tok/s |
+
+Takeaway: the conservative doubling of the native expert budget on the late
+layers is the sweet spot (+8 GPQA points for -6% throughput); aggressive
+expansion hurts a 2B-active model.
+
 Full details (methodology, paired analysis, caveats) in
 **[humaneval-eval.md](humaneval-eval.md)**.
 

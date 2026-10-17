@@ -88,5 +88,19 @@ raggiungere la stessa classe di punteggio con ~metà budget di reasoning
 (78.0% @8K, ~6.9K tok/risposta vs 80.0% @16K, ~9.7K tok/risposta).
 Dettagli completi: [lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md).
 
+## Run 8K sulle domande cap-16K (segmento accoppiato esteso)
+
+Le domande oltre l'indice 50 il cui reasoning nel run 16K ha superato 8192
+token (77 noexp + 69 exp01), rilanciate a budget 8K:
+
+| segmento cap-16K | @8K | @16K | delta |
+|---|---|---|---|
+| noexp (77q) | 44.2% | **51.9%** | +7.7 (7 salte, 13 cadute) |
+| exp01 (69q) | 42.0% | **47.8%** | +5.8 (10 salte, 14 cadute) |
+
+Anche sul blocco piu' duro il budget 16K batte l'8K per entrambe le config: il
+cap e' il limite principale, non il routing. Raw in
+`data/bench-lfm25/cap8k/`, runner in `data/bench-lfm25/scripts/cap8k.py`.
+
 ---
 Setup VM: vast.ai V100-SXM2-16GB, driver 580, CUDA 12.8. Date: 2026-10-17.

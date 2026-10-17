@@ -81,6 +81,12 @@ For expansion the same segment moves the *other* way: its 21 capped questions
 scored 66.7% at 8K and drop to 52.4% at 16K (~14.9K tokens of reasoning each —
 the expanded routing keeps thinking and lands worse).
 
+**Extended cap segment**: rerunning at 8K budget every question beyond index 50
+whose 16K reasoning exceeded 8K tokens (77 stock + 69 expansion) confirms the
+budget effect on the hardest block — 16K beats 8K for both configs
+(stock 44.2% → 51.9%; expansion 42.0% → 47.8%). The cap, not the routing, is
+the main limit there.
+
 ## Findings
 
 1. **Expansion and reasoning budget interact non-trivially — the sign flips**:

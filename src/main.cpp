@@ -254,14 +254,21 @@ static void prefetch_model_loop(const std::string & path) {
 // va iniettato solo sui MoE, perche' il fork rifiuta i modelli densi
 // ("moe expert expansion: model is not MoE"). Host little-endian (x86/ARM LE).
 static bool gguf_probe_moe(const std::string & path, int64_t & expert_count,
-                           int64_t & expert_used, int64_t & block_count) {
-    expert_count = 0; expert_used = 0; block_count = 0;
+                           int64_t & expert_used, int64_t & block_count,
+                           std::string & arch_out) {
+    expert_count = 0; expert_used = 0; block_count = 0; arch_out.clear();
     FILE * f = fopen(path.c_str(), "rb");
     if (!f) return false;
     bool ok = false;
     do {
         auto rd_u32 = [&](uint32_t & v) { return fread(&v, 4, 1, f) == 1; };
         auto rd_u64 = [&](uint64_t & v) { return fread(&v, 8, 1, f) == 1; };
+        auto rd_str = [&](std::string & s) -> bool {
+            uint64_t n;
+            if (!rd_u64(n) || n > 65536) return false;
+            s.resize((size_t) n);
+            return n == 0 || fread(&s[0], 1, (size_t) n, f) == (size_t) n;
+        };
         // ritorna 1 = letto, 0 = eof/errore, -1 = tipo non scalare (va saltato a parte)
         auto rd_scalar = [&](int type, int64_t & out) -> int {
             uint8_t b8; uint16_t b16; uint32_t b32; uint64_t b64; float f32; double f64;
@@ -311,10 +318,34 @@ static bool gguf_probe_moe(const std::string & path, int64_t & expert_count,
                 std::string s(suffix);
                 return key.size() >= s.size() && key.compare(key.size() - s.size(), s.size(), s) == 0;
             };
-            bool want_used   = ends(".expert_count_used");
-            bool want_count  = !want_used && ends(".expert_count");
-            bool want_blocks = ends(".block_count");
+            bool want_arch    = key == "general.architecture";
+            bool want_used    = !want_arch && ends(".expert_count_used");
+            bool want_count   = !want_arch && !want_used && ends(".expert_count");
+            bool want_blocks  = !want_arch && !want_used && !want_count && ends(".block_count");
+            if (want_arch) {
+                if (vt == 8) { if (!rd_str(arch_out)) break; }
+                else if (!skip_value((int) vt)) break;
+                continue;
+            }
             if (want_used || want_count || want_blocks) {
+                if (vt == 9) {
+                    // array per-layer (modelli eterogenei): tiene il MAX
+                    uint32_t et; uint64_t n;
+                    if (!rd_u32(et) || !rd_u64(n)) break;
+                    int64_t mx = -1; bool bad = false;
+                    for (uint64_t j = 0; j < n && !bad; ++j) {
+                        int64_t v = 0;
+                        int r = rd_scalar((int) et, v);
+                        if (r == 0) { bad = true; break; }
+                        if (r == -1) { bad = true; break; }
+                        if (v > mx) mx = v;
+                    }
+                    if (bad) break;
+                    if (want_used)  expert_used  = mx;
+                    else if (want_count) expert_count = mx;
+                    else                 block_count  = mx;
+                    continue;
+                }
                 int64_t v = 0;
                 int r = rd_scalar((int) vt, v);
                 if (r == 0) break;
@@ -872,7 +903,8 @@ int main(int argc, char ** argv) {
             "--moe-expert-decay-end", "--moe-no-expert-decay", "--q35-no-expert-decay",
             "--moe-expert-renorm", "--moe-expert-layer-start", "--moe-expert-layer-end"})) {
         int64_t ec = 0, eu = 0, bc = 0;
-        bool readable = !mp.empty() && gguf_probe_moe(mp, ec, eu, bc);
+        std::string garch;
+        bool readable = !mp.empty() && gguf_probe_moe(mp, ec, eu, bc, garch);
         if (!readable) {
             printf("[AgrillaMoE] metadati GGUF non leggibili (%s): MoE-expansion non iniettata\n", mp.c_str());
             moe_summary = "non iniettata (GGUF non leggibile)";
@@ -883,6 +915,17 @@ int main(int argc, char ** argv) {
             printf("[AgrillaMoE] MoE con top-K nativo %lld >= 20: il profilo lo poterebbe potare, non iniettato\n",
                    (long long) eu);
             moe_summary = "non iniettata (top-K nativo >= 20)";
+        } else if (garch == "nemotron_h_moe") {
+            // Nemotron 3.5 Bolt (74B-A9B): 88 layer ibridi mamba/MoE, pool
+            // LatentMoE condiviso, top-9 nativo per-layer → espansione
+            // conservativa e12 (9->12, +33%) sull'ultimo quarto dei layer
+            for (const char * a : {"--moe-experts", "12",
+                                   "--moe-expert-threshold", "0.8",
+                                   "--moe-expert-layer-start", "60",
+                                   "--moe-expert-layer-end", "87"}) {
+                clean.push_back(a);
+            }
+            moe_summary = "esperti 12, soglia 0.80, livelli 60-87 (Nemotron 3.5 Bolt: pool 496, top-9)";
         } else if (bc == 40 && ec == 64 && eu == 4) {
             // firma LFM2.5-24B-A2B: 40 livelli, 64 esperti, top-4 (prima della
             // firma Qwen3.6, che condivide bc=40 — l'e20 del 35B non e' calibrato

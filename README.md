@@ -51,6 +51,7 @@ inference with the quantized GGUFs published by **Unsloth**, built on the
    |---|---|---|
    | Qwen3.6-35B-A3B | 40 layers, top-8 | experts 20, thr 0.80, layers 25-39 |
    | LiquidAI **LFM2.5-24B-A2B** (`lfm2moe`) | 40 layers, 64 experts, top-4 | experts **8**, thr 0.80, layers 25-39 |
+   | NVIDIA **Nemotron 3.5 Bolt 74B-A9B** (`nemotron_h_moe`) | 88 hybrid layers, 496-expert LatentMoE pool, per-layer top-9 | experts **12**, thr 0.80, layers 60-87 |
    | other MoE | any | experts 20, thr 0.80 (no layer range) |
 
    The LFM2.5 profile doubles the routed budget (4 → 8) on the late layers —

@@ -100,6 +100,22 @@ Practical guidance for this model: **QAD-Q4_0 + expansion profile** for tight
 token budgets; **Q8_0 stock** for best absolute accuracy at 8K (75.8%, above
 the official BF16 number, at 32.8 t/s).
 
+### Where Q8 exp01 differs from Q8 noexp (per-question pairing, 198q)
+
+| group | questions | reasoning (noexp vs exp01) | cap-hit |
+|---|---|---|---|
+| both correct | **127 (64%)** | ~4.7K vs ~4.5K tok | 39 vs 33 |
+| only noexp correct | **23** | ~7.9K vs ~8.1K tok | 20 vs 20 |
+| only exp01 correct | **9** | ~7.9K vs ~7.8K tok | 7 vs 8 |
+| both wrong | 39 | ~7.5K vs ~7.8K tok | 32 vs 32 |
+
+Net +14 questions for stock = the whole accuracy gap. Every flip lives in the
+budget-saturating block (78-87% cap-hit in the flip groups vs 26% in
+both-correct), with near-identical reasoning lengths — the expanded Q8 routing
+does not think longer, it lands on worse options precisely on cap-forced long
+answers. Neutral on the easy 64%, harmful on the deep tail: the opposite of
+QAD-Q4, where expansion helped exactly there.
+
 ## Additional experiments (budget study)
 
 The interaction between expert budget and reasoning budget is documented in

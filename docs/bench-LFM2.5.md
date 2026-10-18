@@ -69,16 +69,47 @@ expansion advantage concentrates exactly where the routing has room to matter.
 - `--moe-reduce` (value-threshold pruning with mass-preserving renorm) also
   validated on this family.
 
+## Q8_0 vs QAD-Q4_0: the quantization × expansion matrix (full 198 @ 8K)
+
+Rerunning both configs with the **Q8_0** quant (25.5 GB, V100-32GB, same
+protocol: 4×16K slots, KV q8_0, temp 0):
+
+| config | Q4-QAD (QAD-Q4_0) | Q8_0 (naive) | official BF16 |
+|---|---|---|---|
+| stock top-4 | 67.7% (est.¹) | **75.8%** | 74.42% |
+| expansion 8, layers 25-39 | **70.7%** (est.¹) | 68.7% | — |
+
+¹ Q4 full-set numbers are estimates (50 direct + 77/69 direct re-runs + proxy
+for never-capped questions); Q8 numbers are direct on all 198.
+Q8 throughput: 32.8 t/s (noexp) / 28.6 t/s (exp01) vs ~38.7 / 36.5 for Q4.
+
+Three observations:
+
+1. **Stock: Q8_0 beats the BF16 reference** (75.8% vs 74.42%, same protocol
+   caveat as before) and beats QAD-Q4 by +8. Naive higher-bit quantization
+   helps the unmodified routing.
+2. **Expansion: the sign flips per quant.** Expansion is +3.0 for the distilled
+   QAD-Q4 but −7.1 for naive Q8 (68.7% vs stock's 75.8%). The distilled
+   quantization appears tuned to the stock top-4 routing; naive Q8 under
+   re-routed traffic overthinks (49.5% cap saturation, median reasoning ~8K).
+3. **Paired-50 head-to-heads are stark**: Q4-QAD exp01 78.0% vs Q8 exp01 68.0%
+   (−10); Q8 noexp 78.0% vs QAD-Q4 noexp 70.0% (+8). The two "78%" winners are
+   opposite arms of the matrix.
+
+Practical guidance for this model: **QAD-Q4_0 + expansion profile** for tight
+token budgets; **Q8_0 stock** for best absolute accuracy at 8K (75.8%, above
+the official BF16 number, at 32.8 t/s).
+
 ## Additional experiments (budget study)
 
 The interaction between expert budget and reasoning budget is documented in
 [lfm25-expansion-gpqa.md](lfm25-expansion-gpqa.md): at a tight 8K cap expansion
-wins by +8 over stock; at 16K the sign inverts (stock 80.0% paired / 73.2% full
-vs expansion 74.0% / 71.7%) — expansion buys budget-efficiency (same score
-class at roughly half the thinking tokens), not a higher ceiling. A tripling
-budget (e12) scores below stock. Rerunning the 16K-capped questions at 8K
-confirms the cap is the main limit on the hardest block (16K beats 8K for both
-configs: stock 44.2% → 51.9%, expansion 42.0% → 47.8%).
+wins by +8 over stock (Q4-QAD); at 16K the sign inverts (stock 80.0% paired /
+73.2% full vs expansion 74.0% / 71.7%) — expansion buys budget-efficiency (same
+score class at roughly half the thinking tokens), not a higher ceiling. A
+tripling budget (e12) scores below stock. Rerunning the 16K-capped questions at
+8K confirms the cap is the main limit on the hardest block (16K beats 8K for
+both configs: stock 44.2% → 51.9%, expansion 42.0% → 47.8%).
 
 ---
 Date: 2026-10-17. Raw data: [`data/bench-lfm25/`](../data/bench-lfm25/README.md).

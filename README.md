@@ -306,6 +306,31 @@ Full details (methodology, paired analysis, caveats) in
   `N=20 T=0.8 L25–39` → GPQA-Diamond 84.34% vs 81.82% stock (+2.5 points).
   This is the profile AgrillaMoE injects by default.
 
+## Per-expert mixed-precision quantization (MOExp MixedQuant)
+
+Il motore supporta i GGUF **mixed-precision per-esperto** generati con
+`llama-quantize --split-experts` (fork `moe-expansion` >= `72c497b`): i 256
+esperti routati di ogni layer sono ripartiti in 4 pool per rank d'uso
+(16 Q8_0 / 48 Q6_K / 128 Q4_K / 64 Q2_K) con tabelle `ffn_exps_local_p` /
+`ffn_exps_mask_p` che il grafo usa per il routing per-pool. Lo shared expert
+resta a Q8_0.
+
+- Modello di riferimento:
+  [vagrillo/Qwen35B-A4B-MOExpMixedQuant](https://huggingface.co/vagrillo/Qwen35B-A4B-MOExpMixedQuant)
+  (~21 GB vs 37 GB della Q8_0 uniforme, ~4.65 bpw medi sugli esperti)
+- Metodo e ranking: `llama-quantize --split-experts expert-order.txt` con
+  `expert-order.txt` generato dal tracciamento runtime
+  `LLAMA_MOE_EXPERT_USAGE_FILE` (vedi `docs/expert-pools.md` del fork e la
+  directory `expert-rank/` di AgrillaMoE)
+- Nessuna flag nuova: il loader rileva i pool dalla presenza dei tensori
+  `ffn_gate_up_exps_hi` / `ffn_gate_exps_hi` (gate/up fuso o separato)
+- Profilo consigliato per il modello mixed (coerente col workload di ranking):
+  `--moe-experts 20 --moe-expert-threshold 0.95` (tutti i layer)
+
+Nota: il compute per-pool valuta `n_used` righe per pool (4×20 valutazioni di
+esperto per token invece di 20): l'overhead sulle FFN in decode è ~4×; la
+riduzione con budget per pool (p99 dei conteggi) è pianificata.
+
 ## License
 
 MIT (like llama.cpp). This project includes/modifies code from

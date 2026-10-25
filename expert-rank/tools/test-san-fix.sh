@@ -58,7 +58,7 @@ ask tiny  "$(gen_prompt 6)"
 ask short "$(gen_prompt 30)"
 ask mid   "$(gen_prompt 75)"
 
-pkill -9 -f llama-server 2>/dev/null; sleep 3
+pkill -9 -x llama-server 2>/dev/null; sleep 8
 
 if grep -q "Invalid __global__\|Invalid __shared__\|out of bounds\|misaligned" "$LOG"; then
   echo "FAIL: sanitizer ha trovato errori"; grep -m3 -B1 -A3 "Invalid\|out of bounds" "$LOG"; exit 1

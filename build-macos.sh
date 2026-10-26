@@ -39,9 +39,10 @@ if ! grep -q "FFN_EXPS_LOCAL_0" "$LLAMA_DIR/src/llama-arch.h" 2>/dev/null; then
     echo "  oppure clona: git clone -b moe-expansion https://github.com/vagrillo/llama.cpp \"$LLAMA_DIR\""
     exit 1
 fi
-if ! grep -q "nmatch" "$LLAMA_DIR/ggml/src/ggml-metal/kernels/mul_mm.metal" 2>/dev/null; then
-    echo "WARNING: $LLAMA_DIR non contiene la fix Metal per-pair (commit 22fb86823):"
-    echo "  il prefill con il modello mixed puo' crashare/corrompere l'output."
+if ! grep -q "nmatch" "$LLAMA_DIR/ggml/src/ggml-metal/kernels/mul_mm.metal" 2>/dev/null || \
+   ! grep -q "kernel_mul_mm_id_map0_ne20_20" "$LLAMA_DIR/ggml/src/ggml-metal/kernels/mul_mm.metal" 2>/dev/null; then
+    echo "WARNING: $LLAMA_DIR non contiene le fix Metal per-pair/per-ne20 (commit 22fb86823+99724f1cb):"
+    echo "  il prefill con il modello mixed crasha (EXC_BAD_ACCESS in ggml_metal_op_mul_mat_id)."
     echo "  Aggiorna: git -C $LLAMA_DIR fetch origin moe-expansion && git -C $LLAMA_DIR reset --hard origin/moe-expansion"
 fi
 

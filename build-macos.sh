@@ -29,6 +29,22 @@ if [ -z "$LLAMA_DIR" ]; then
     fi
 fi
 
+# Il modello MOExp MixedQuant richiede il fork con pool per-esperto e le fix
+# Metal per-pair: un clone vecchio o upstream compila ma poi fallisce al load
+# ('ffn_down_exps.weight' not found) o in prefill. Verifica marker minimi.
+if ! grep -q "FFN_EXPS_LOCAL_0" "$LLAMA_DIR/src/llama-arch.h" 2>/dev/null; then
+    echo "ERRORE: $LLAMA_DIR non contiene il supporto pool (vecchio o upstream)."
+    echo "  Aggiorna il fork e ripeti, es.:"
+    echo "    git -C $LLAMA_DIR fetch origin moe-expansion && git -C $LLAMA_DIR reset --hard origin/moe-expansion"
+    echo "  oppure clona: git clone -b moe-expansion https://github.com/vagrillo/llama.cpp \"$LLAMA_DIR\""
+    exit 1
+fi
+if ! grep -q "nmatch" "$LLAMA_DIR/ggml/src/ggml-metal/kernels/mul_mm.metal" 2>/dev/null; then
+    echo "WARNING: $LLAMA_DIR non contiene la fix Metal per-pair (commit 22fb86823):"
+    echo "  il prefill con il modello mixed puo' crashare/corrompere l'output."
+    echo "  Aggiorna: git -C $LLAMA_DIR fetch origin moe-expansion && git -C $LLAMA_DIR reset --hard origin/moe-expansion"
+fi
+
 cmake -S "$HERE" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DAGRILLA_LLAMA_DIR="$LLAMA_DIR"

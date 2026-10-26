@@ -42,6 +42,24 @@ Primo run completo del modello mixed (21.5 GB) su V100. Esito:
 I GGUF richiesti dal modello HF sono stati rigenerati/patchati con le
 tabelle corrette: rigenerando da Q8_0 serve il fork ≥ `48872dc79`.
 
+## Per-pool budgets (LLAMA_MOE_POOL_BUDGETS) — 2026-10-26
+
+Il compute pooled valuta di default 20 slot per ognuna delle 4 pool (80
+valutazioni/token contro ~11.5 utili). `LLAMA_MOE_POOL_BUDGETS=K0,K1,K2,K3`
+(ordine hi/mid/lo/tail) tronca per token le righe di ogni pool al peso
+massimo (argsort desc): `10,5,3,2` = 20 righe, copre il p99 del ranking.
+Opt-in: senza env comportamento denso invariato; `K=0` disabilita la pool;
+`20,20,20,20` produce output identico al denso (parità verificata su V100).
+
+Misurato (Qwen3.6-35B-A3B mixed, budget 10,5,3,2 vs denso):
+- Apple Silicon (Metal, contesto 14-21K): prefill 231 → 390-407 t/s (+70%),
+  decode 21.9 → 28.3 t/s (+30%), tg stabile al crescere del contesto
+- V100-SXM2 (CUDA): invariato — decode a tetto da lancio kernel (~28 t/s),
+  prefill a tetto da sync del percorso fallback; parità e sanità ok.
+
+Richiede fork ≥ `a4b4d01cf` (fix shape/contiguità incluse: `83847763a`,
+`031bb54e4`).
+
 ## Modello usato durante il ranking
 
 | Campo | Valore |
